@@ -1,4 +1,4 @@
-import { fulfillmentStatusSchema, type Order, type Page } from "@luxebaddy/contracts";
+import { fulfillmentStatusSchema, type Order, type Page } from "@luxebaddie/contracts";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { z } from "zod";
 import { type HttpHandler, httpRouter, pathParam } from "../../shared/adapters/api-gateway";

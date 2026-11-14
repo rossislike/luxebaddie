@@ -1,5 +1,5 @@
 {
-  "name": "@luxebaddy/web",
+  "name": "@luxebaddie/web",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -15,7 +15,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "zod": "^4.6.7",
-    "@luxebaddy/contracts": "workspace:*"
+    "@luxebaddie/contracts": "workspace:*"
   },
   "devDependencies": {
     "@playwright/test": "^1.65.1",

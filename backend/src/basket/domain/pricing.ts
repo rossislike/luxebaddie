@@ -4,7 +4,7 @@ import {
   type PricedLine,
   type Product,
   variantTitle,
-} from "@luxebaddy/contracts";
+} from "@luxebaddie/contracts";
 import { FREE_SHIPPING_THRESHOLD_CENTS, shippingCentsFor } from "./shipping";
 
 /**

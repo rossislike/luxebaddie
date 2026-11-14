@@ -1,4 +1,4 @@
-import { productSchema, startingPriceCents, variantTitle } from "@luxebaddy/contracts";
+import { productSchema, startingPriceCents, variantTitle } from "@luxebaddie/contracts";
 import { describe, expect, it } from "vitest";
 import { seedProducts } from "../../scripts/seed-data";
 import { lashes, wig } from "./fixtures";

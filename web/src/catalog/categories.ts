@@ -1,4 +1,4 @@
-import type { CategorySlug } from "@luxebaddy/contracts";
+import type { CategorySlug } from "@luxebaddie/contracts";
 
 export type Category = {
   slug: CategorySlug;

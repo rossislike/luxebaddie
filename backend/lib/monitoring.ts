@@ -26,7 +26,7 @@ export class LbMonitoring extends Construct {
     super(scope, id);
     const period = Duration.minutes(5);
 
-    this.alarmTopic = new Topic(this, "AlarmTopic", { displayName: `LuxeBaddy ${props.config.stage} alarms` });
+    this.alarmTopic = new Topic(this, "AlarmTopic", { displayName: `LuxeBaddie ${props.config.stage} alarms` });
     if (props.config.alarmEmail) {
       this.alarmTopic.addSubscription(new EmailSubscription(props.config.alarmEmail));
     }
@@ -65,7 +65,7 @@ export class LbMonitoring extends Construct {
     }
 
     const functions = Object.entries(props.functions);
-    this.dashboard = new Dashboard(this, "Dashboard", { dashboardName: `LuxeBaddy-${props.config.stage}` });
+    this.dashboard = new Dashboard(this, "Dashboard", { dashboardName: `LuxeBaddie-${props.config.stage}` });
     this.dashboard.addWidgets(
       new GraphWidget({
         title: "API requests and errors",

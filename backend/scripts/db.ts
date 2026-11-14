@@ -7,7 +7,7 @@
  *
  * Run without a pattern to list them. See DATA-MODEL.md for the model.
  */
-import { categorySlugSchema, fulfillmentStatusSchema } from "@luxebaddy/contracts";
+import { categorySlugSchema, fulfillmentStatusSchema } from "@luxebaddie/contracts";
 import { dynamoDbBasketRepository } from "../src/basket/adapters/dynamodb-basket-repository";
 import { dynamoDbOrderRepository } from "../src/ordering/adapters/dynamodb-order-repository";
 import { dynamoDbProductRepository } from "../src/product/adapters/dynamodb-product-repository";

@@ -1,4 +1,4 @@
-import type { Product } from "@luxebaddy/contracts";
+import type { Product } from "@luxebaddie/contracts";
 import { ProductArt } from "./product-art";
 
 /** The product's photo, or generated artwork while no photo exists. */

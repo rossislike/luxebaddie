@@ -1,4 +1,4 @@
-import type { CategorySlug, Product } from "@luxebaddy/contracts";
+import type { CategorySlug, Product } from "@luxebaddie/contracts";
 import { cache } from "react";
 import { apiFetch } from "@/lib/api";
 import { categories } from "./categories";

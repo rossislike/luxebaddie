@@ -1,4 +1,4 @@
-import { checkoutCompletedSchema } from "@luxebaddy/contracts";
+import { checkoutCompletedSchema } from "@luxebaddie/contracts";
 import Stripe from "stripe";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { stripePaymentProvider, toCheckoutCompleted } from "../../../src/payment/adapters/stripe-payment-provider";

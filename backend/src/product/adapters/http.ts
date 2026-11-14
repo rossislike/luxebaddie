@@ -1,4 +1,4 @@
-import { categorySlugSchema, productSchema } from "@luxebaddy/contracts";
+import { categorySlugSchema, productSchema } from "@luxebaddie/contracts";
 import { type HttpHandler, httpRouter, parseBody, pathParam } from "../../shared/adapters/api-gateway";
 import { invalid } from "../../shared/errors";
 import type { CatalogService } from "../application/catalog-service";

@@ -4,7 +4,7 @@
  *
  *   pnpm seed:dev
  */
-import { productSchema } from "@luxebaddy/contracts";
+import { productSchema } from "@luxebaddie/contracts";
 import { createAdminFetch, getStackOutputs, stageFromArgs } from "./lib/aws";
 import { seedProducts } from "./seed-data";
 

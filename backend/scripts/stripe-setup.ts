@@ -81,7 +81,7 @@ const endpoint = await stripe.webhookEndpoints.create({
   enabled_events: WEBHOOK_EVENTS,
   // Events are sent in the same API version the SDK's types describe.
   api_version: Stripe.API_VERSION as Stripe.WebhookEndpointCreateParams.ApiVersion,
-  description: `LuxeBaddy ${stage} payment service`,
+  description: `LuxeBaddie ${stage} payment service`,
 });
 if (!endpoint.secret) throw new Error("Stripe did not return a webhook signing secret");
 

@@ -6,7 +6,7 @@ import {
   QueryCommand,
   type QueryCommandInput,
 } from "@aws-sdk/lib-dynamodb";
-import type { Order, Page } from "@luxebaddy/contracts";
+import type { Order, Page } from "@luxebaddie/contracts";
 import { invalid } from "../../shared/errors";
 import { decodeCursor, encodeCursor } from "../../table/cursor";
 import { customerPartition, fulfillmentPartition, orderFromItem, orderKey, orderToItem } from "../../table/order-item";

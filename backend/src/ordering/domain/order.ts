@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import type { CheckoutCompleted, Order, OrderConfirmation } from "@luxebaddy/contracts";
+import type { CheckoutCompleted, Order, OrderConfirmation } from "@luxebaddie/contracts";
 
 // Crockford base32: no I, L, O or U, so order numbers are easy to read aloud.
 const ORDER_NUMBER_ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";

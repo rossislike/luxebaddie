@@ -1,4 +1,4 @@
-import type { BasketItem, PricedBasket } from "@luxebaddy/contracts";
+import type { BasketItem, PricedBasket } from "@luxebaddie/contracts";
 import { conflict } from "../../shared/errors";
 import { itemsOf, priceBasket } from "../domain/pricing";
 import type { BasketRepository, Catalog, CheckoutGateway } from "./ports";

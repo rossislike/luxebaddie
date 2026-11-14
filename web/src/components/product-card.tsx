@@ -1,4 +1,4 @@
-import { type Product, startingPriceCents } from "@luxebaddy/contracts";
+import { type Product, startingPriceCents } from "@luxebaddie/contracts";
 import Link from "next/link";
 import { formatMoney } from "@/lib/money";
 import { ProductImage } from "./product-image";

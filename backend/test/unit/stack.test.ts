@@ -1,21 +1,21 @@
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
-import { LuxeBaddyStack } from "../../lib/luxebaddy-stack";
+import { LuxeBaddieStack } from "../../lib/luxebaddie-stack";
 import { stageConfigFor } from "../../lib/stage-config";
 
 let template: Template;
 
 beforeAll(() => {
   const app = new App();
-  const stack = new LuxeBaddyStack(app, "TestStack", {
+  const stack = new LuxeBaddieStack(app, "TestStack", {
     config: stageConfigFor("dev"),
     env: { account: "123456789012", region: "us-east-1" },
   });
   template = Template.fromStack(stack);
 }, 120_000);
 
-describe("LuxeBaddyStack", () => {
+describe("LuxeBaddieStack", () => {
   it("stores everything in one on-demand table with generic keys and expiry", () => {
     template.resourceCountIs("AWS::DynamoDB::Table", 1);
     template.hasResourceProperties("AWS::DynamoDB::Table", {
@@ -80,7 +80,7 @@ describe("LuxeBaddyStack", () => {
 
   it("fans CheckoutCompleted out to one queue per subscriber", () => {
     template.hasResourceProperties("AWS::Events::Rule", {
-      EventPattern: { source: ["com.luxebaddy.payment"], "detail-type": ["CheckoutCompleted"] },
+      EventPattern: { source: ["com.luxebaddie.payment"], "detail-type": ["CheckoutCompleted"] },
     });
     const [rule] = Object.values(template.findResources("AWS::Events::Rule"));
     expect(rule?.Properties.Targets).toHaveLength(2);

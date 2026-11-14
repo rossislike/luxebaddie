@@ -1,5 +1,5 @@
 import { BatchGetCommand, type BatchGetCommandOutput, type DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
-import type { Product } from "@luxebaddy/contracts";
+import type { Product } from "@luxebaddie/contracts";
 import { productFromItem, productKey } from "../../table/product-item";
 import type { TableKey } from "../../table/schema";
 import type { Catalog } from "../application/ports";

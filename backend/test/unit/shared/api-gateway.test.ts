@@ -65,7 +65,7 @@ describe("httpRouter", () => {
   });
 
   it("sends CORS headers to allowed origins only", async () => {
-    vi.stubEnv("ALLOWED_ORIGINS", "https://luxebaddy.com,http://localhost:3000");
+    vi.stubEnv("ALLOWED_ORIGINS", "https://luxebaddie.com,http://localhost:3000");
 
     const allowed = await router(request({ headers: { origin: "http://localhost:3000" } }));
     expect(allowed.headers?.["Access-Control-Allow-Origin"]).toBe("http://localhost:3000");

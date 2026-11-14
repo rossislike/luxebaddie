@@ -1,6 +1,6 @@
 "use client";
 
-import type { OrderConfirmation as Order } from "@luxebaddy/contracts";
+import type { OrderConfirmation as Order } from "@luxebaddie/contracts";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";

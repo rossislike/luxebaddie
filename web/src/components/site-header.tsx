@@ -16,8 +16,8 @@ export function SiteHeader() {
             </Link>
           ))}
         </nav>
-        <Link href="/" className="font-display text-2xl tracking-[0.25em] sm:text-3xl" aria-label="LuxeBaddy home">
-          LUXEBADDY
+        <Link href="/" className="font-display text-2xl tracking-[0.25em] sm:text-3xl" aria-label="LuxeBaddie home">
+          LUXEBADDIE
         </Link>
         <div className="flex justify-end">
           <BagLink />

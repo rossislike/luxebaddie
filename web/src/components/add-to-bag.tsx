@@ -1,6 +1,6 @@
 "use client";
 
-import type { Product } from "@luxebaddy/contracts";
+import type { Product } from "@luxebaddie/contracts";
 import Link from "next/link";
 import { useState } from "react";
 import { basketStore } from "@/cart/basket-store";

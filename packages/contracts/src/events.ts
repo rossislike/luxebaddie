@@ -2,7 +2,7 @@ import { z } from "zod";
 import { addressSchema, orderItemSchema } from "./order";
 
 /**
- * Events on the LuxeBaddy EventBridge bus. Each event has a `source` (the
+ * Events on the LuxeBaddie EventBridge bus. Each event has a `source` (the
  * service that publishes it) and a `detailType` (what happened). New
  * automations subscribe to these with an EventBridge rule; publishers never
  * need to know who is listening.
@@ -10,7 +10,7 @@ import { addressSchema, orderItemSchema } from "./order";
 export const EVENTS = {
   /** A shopper paid. Published by the payment service once Stripe confirms the payment. */
   checkoutCompleted: {
-    source: "com.luxebaddy.payment",
+    source: "com.luxebaddie.payment",
     detailType: "CheckoutCompleted",
   },
   /**
@@ -18,7 +18,7 @@ export const EVENTS = {
    * was charged and no order exists. Published by the payment service.
    */
   checkoutPaymentFailed: {
-    source: "com.luxebaddy.payment",
+    source: "com.luxebaddie.payment",
     detailType: "CheckoutPaymentFailed",
   },
 } as const;

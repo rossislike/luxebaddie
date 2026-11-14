@@ -1,4 +1,4 @@
-import type { CheckoutCompleted, CheckoutPaymentFailed } from "@luxebaddy/contracts";
+import type { CheckoutCompleted, CheckoutPaymentFailed } from "@luxebaddie/contracts";
 
 /** A message from the payment provider, exactly as it arrived. */
 export type PaymentNotification = {

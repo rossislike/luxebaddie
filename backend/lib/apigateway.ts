@@ -26,7 +26,7 @@ export class LbApiGateway extends Construct {
     super(scope, id);
 
     this.api = new RestApi(this, "api", {
-      restApiName: `LuxeBaddy API (${props.config.stage})`,
+      restApiName: `LuxeBaddie API (${props.config.stage})`,
       deployOptions: {
         stageName: props.config.stage,
         metricsEnabled: true,

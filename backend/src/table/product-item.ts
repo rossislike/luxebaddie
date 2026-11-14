@@ -1,4 +1,4 @@
-import { MAX_POSITION, type CategorySlug, type Product } from "@luxebaddy/contracts";
+import { MAX_POSITION, type CategorySlug, type Product } from "@luxebaddie/contracts";
 import { applicationAttributes, assertType, type TableItem, type TableKey, zeroPad } from "./schema";
 
 /**

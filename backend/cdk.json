@@ -1,5 +1,5 @@
 {
-  "app": "npx tsx bin/luxebaddy.ts",
+  "app": "npx tsx bin/luxebaddie.ts",
   "watch": {
     "include": ["bin/**", "lib/**", "src/**"],
     "exclude": ["node_modules", "cdk.out", "test"]

@@ -1,4 +1,4 @@
-import type { BasketItem } from "@luxebaddy/contracts";
+import type { BasketItem } from "@luxebaddie/contracts";
 import { assertType, type TableItem, type TableKey } from "./schema";
 
 /**

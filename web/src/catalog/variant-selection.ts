@@ -1,4 +1,4 @@
-import type { Product, Variant } from "@luxebaddy/contracts";
+import type { Product, Variant } from "@luxebaddie/contracts";
 
 export type Selection = Record<string, string>;
 

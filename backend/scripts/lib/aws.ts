@@ -13,9 +13,9 @@ export type StackOutputs = {
 /** Reads the deployed stack's outputs (API URL, table names, ...) from CloudFormation. */
 export async function getStackOutputs(stage: string): Promise<StackOutputs> {
   const cloudFormation = new CloudFormationClient({});
-  const { Stacks } = await cloudFormation.send(new DescribeStacksCommand({ StackName: `LuxeBaddy-${stage}` }));
+  const { Stacks } = await cloudFormation.send(new DescribeStacksCommand({ StackName: `LuxeBaddie-${stage}` }));
   const outputs = Object.fromEntries((Stacks?.[0]?.Outputs ?? []).map((o) => [o.OutputKey, o.OutputValue]));
-  if (!outputs.ApiUrl) throw new Error(`Stack LuxeBaddy-${stage} has no ApiUrl output. Is it deployed?`);
+  if (!outputs.ApiUrl) throw new Error(`Stack LuxeBaddie-${stage} has no ApiUrl output. Is it deployed?`);
   return outputs as StackOutputs;
 }
 

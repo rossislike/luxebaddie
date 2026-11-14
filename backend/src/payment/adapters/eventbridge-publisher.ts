@@ -1,5 +1,5 @@
 import { type EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
-import { EVENTS } from "@luxebaddy/contracts";
+import { EVENTS } from "@luxebaddie/contracts";
 import type { EventPublisher, PaymentEvent } from "../application/ports";
 
 function toBusEntry(event: PaymentEvent) {

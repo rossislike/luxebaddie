@@ -1,4 +1,4 @@
-import type { CategorySlug, Product } from "@luxebaddy/contracts";
+import type { CategorySlug, Product } from "@luxebaddie/contracts";
 import { notFound } from "../../shared/errors";
 import type { ProductRepository } from "./ports";
 

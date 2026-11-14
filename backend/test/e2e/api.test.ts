@@ -19,7 +19,7 @@ import {
   type OrderConfirmation,
   type PricedBasket,
   type Product,
-} from "@luxebaddy/contracts";
+} from "@luxebaddie/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { secretParameterNames } from "../../lib/stage-config";
 import { createAdminFetch, getStackOutputs, type StackOutputs } from "../../scripts/lib/aws";

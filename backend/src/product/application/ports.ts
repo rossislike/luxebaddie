@@ -1,4 +1,4 @@
-import type { CategorySlug, Product } from "@luxebaddy/contracts";
+import type { CategorySlug, Product } from "@luxebaddie/contracts";
 
 /**
  * Where products are kept. Implemented by an adapter (DynamoDB today).

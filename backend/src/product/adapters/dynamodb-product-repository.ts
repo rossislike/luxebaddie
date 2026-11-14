@@ -1,5 +1,5 @@
 import { DeleteCommand, type DynamoDBDocumentClient, GetCommand, PutCommand, paginateQuery } from "@aws-sdk/lib-dynamodb";
-import type { Product } from "@luxebaddy/contracts";
+import type { Product } from "@luxebaddie/contracts";
 import { CATALOG_PARTITION, catalogPrefix, productFromItem, productKey, productToItem } from "../../table/product-item";
 import { GSI1 } from "../../table/schema";
 import type { ProductRepository } from "../application/ports";

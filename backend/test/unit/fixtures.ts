@@ -1,4 +1,4 @@
-import type { CheckoutCompleted, Product } from "@luxebaddy/contracts";
+import type { CheckoutCompleted, Product } from "@luxebaddie/contracts";
 
 export const wig: Product = {
   id: "test-wig",

@@ -1,4 +1,4 @@
-import type { FulfillmentStatus, Order, Page } from "@luxebaddy/contracts";
+import type { FulfillmentStatus, Order, Page } from "@luxebaddie/contracts";
 
 export type SaveOutcome = "created" | "already_exists";
 

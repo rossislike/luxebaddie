@@ -1,7 +1,7 @@
 "use client";
 
-import type { PricedLine } from "@luxebaddy/contracts";
-import { MAX_QUANTITY_PER_LINE } from "@luxebaddy/contracts";
+import type { PricedLine } from "@luxebaddie/contracts";
+import { MAX_QUANTITY_PER_LINE } from "@luxebaddie/contracts";
 import Link from "next/link";
 import { useState } from "react";
 import { basketStore } from "@/cart/basket-store";

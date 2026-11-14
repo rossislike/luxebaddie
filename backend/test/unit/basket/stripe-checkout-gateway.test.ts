@@ -53,7 +53,7 @@ describe("buildCheckoutSessionParams", () => {
   });
 
   it("labels the session so this checkout flow can be tracked in Stripe", () => {
-    expect(params.integration_identifier).toMatch(/^luxebaddy_bag_checkout_[a-z]{8}$/);
+    expect(params.integration_identifier).toMatch(/^luxebaddie_bag_checkout_[a-z]{8}$/);
   });
 
   it("collects no tax unless the stage has Stripe Tax switched on", () => {

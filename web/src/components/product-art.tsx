@@ -1,4 +1,4 @@
-import type { CategorySlug } from "@luxebaddy/contracts";
+import type { CategorySlug } from "@luxebaddie/contracts";
 
 /**
  * Stand-in artwork shown until real product photography exists. Each product

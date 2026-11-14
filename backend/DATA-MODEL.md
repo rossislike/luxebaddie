@@ -1,6 +1,6 @@
 # Data model
 
-LuxeBaddy stores everything in one DynamoDB table (single-table design). This document is the source of truth for that table. **Change it first, then the code.** Key formats live in code in exactly one place, `src/table/`, and the table itself is defined in `lib/database.ts`.
+LuxeBaddie stores everything in one DynamoDB table (single-table design). This document is the source of truth for that table. **Change it first, then the code.** Key formats live in code in exactly one place, `src/table/`, and the table itself is defined in `lib/database.ts`.
 
 ## Why one table
 
@@ -110,7 +110,7 @@ GSI2, partition FULFILLMENT#unfulfilled         the work queue, oldest first
 - Indexing attributes (`PK`, `SK`, `GSI1PK`, `GSI1SK`, `GSI2PK`, `GSI2SK`, `Type`, `TTL`) are separate from business data. Business values are never parsed out of a key.
 - One repository function per access pattern above.
 - Creates are conditional unless the overwrite is intended and says so in a comment.
-- To look at real data by access pattern rather than by raw keys: `pnpm --filter @luxebaddy/backend db dev <pattern> [argument]` (run it with no pattern to see the list).
+- To look at real data by access pattern rather than by raw keys: `pnpm --filter @luxebaddie/backend db dev <pattern> [argument]` (run it with no pattern to see the list).
 
 ## Changing the model
 

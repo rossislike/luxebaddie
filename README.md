@@ -1,6 +1,6 @@
 <img src="assets/icon.svg" width="64" height="64" alt="">
 
-# LuxeBaddy
+# LuxeBaddie
 
 An online store for wigs, weaves and lashes, built to run with as little manual work as possible.
 
@@ -103,12 +103,12 @@ pnpm test                # unit tests (no AWS needed)
 pnpm test:e2e            # end-to-end tests against the deployed dev stage (wait a minute after a deploy)
 
 # Look at real data by access pattern (run without a pattern to list them)
-pnpm --filter @luxebaddy/backend db dev catalog wigs
-pnpm --filter @luxebaddy/backend db dev customer someone@example.com
+pnpm --filter @luxebaddie/backend db dev catalog wigs
+pnpm --filter @luxebaddie/backend db dev customer someone@example.com
 
 # Connect the dev stage to Stripe, once (restricted keys from a Stripe sandbox, see "Stripe" above)
 STRIPE_BASKET_KEY=rk_test_... STRIPE_PAYMENT_KEY=rk_test_... STRIPE_SETUP_KEY=rk_test_... \
-  pnpm --filter @luxebaddy/backend stripe:setup:dev
+  pnpm --filter @luxebaddie/backend stripe:setup:dev
 
 # Storefront
 cp web/.env.example web/.env.local   # set NEXT_PUBLIC_API_URL to the stack's ApiUrl output
@@ -118,4 +118,4 @@ pnpm build                           # static site in web/out
 
 Admin routes (`/admin/*`) accept only requests signed with AWS credentials. They cover the catalog, the fulfillment queue (`/admin/order`), a single order, and one customer's orders by email (`/admin/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. `backend/scripts/lib/aws.ts` has a ready-made signed `fetch`.
 
-Operations: the `LuxeBaddy-dev` CloudWatch dashboard shows traffic, errors and queue health. To receive alarm emails, set `alarmEmail` for the stage in `backend/lib/stage-config.ts`.
+Operations: the `LuxeBaddie-dev` CloudWatch dashboard shows traffic, errors and queue health. To receive alarm emails, set `alarmEmail` for the stage in `backend/lib/stage-config.ts`.

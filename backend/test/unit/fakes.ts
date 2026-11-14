@@ -1,5 +1,5 @@
 /** In-memory stand-ins for the ports, so use cases can be tested without AWS or Stripe. */
-import type { BasketItem, Order, Page, PricedBasket, Product } from "@luxebaddy/contracts";
+import type { BasketItem, Order, Page, PricedBasket, Product } from "@luxebaddie/contracts";
 import type { BasketRepository, Catalog, CheckoutGateway } from "../../src/basket/application/ports";
 import type { OrderRepository, PageRequest } from "../../src/ordering/application/ports";
 import type { EventPublisher, PaymentEvent } from "../../src/payment/application/ports";

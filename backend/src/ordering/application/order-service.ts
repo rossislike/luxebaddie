@@ -1,4 +1,4 @@
-import type { CheckoutCompleted, FulfillmentStatus, Order, OrderConfirmation } from "@luxebaddy/contracts";
+import type { CheckoutCompleted, FulfillmentStatus, Order, OrderConfirmation } from "@luxebaddie/contracts";
 import { notFound } from "../../shared/errors";
 import { confirmationOf, orderFromCheckout, orderIdForSession } from "../domain/order";
 import type { OrderRepository, PageRequest, SaveOutcome } from "./ports";

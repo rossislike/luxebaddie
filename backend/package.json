@@ -1,5 +1,5 @@
 {
-  "name": "@luxebaddy/backend",
+  "name": "@luxebaddie/backend",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -20,7 +20,7 @@
     "@aws-sdk/client-eventbridge": "^3.1169.0",
     "@aws-sdk/client-ssm": "^3.1169.0",
     "@aws-sdk/lib-dynamodb": "^3.1169.0",
-    "@luxebaddy/contracts": "workspace:*",
+    "@luxebaddie/contracts": "workspace:*",
     "stripe": "^23.1.0",
     "zod": "^4.6.7"
   },

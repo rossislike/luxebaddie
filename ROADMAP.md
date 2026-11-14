@@ -1,6 +1,6 @@
-# LuxeBaddy roadmap
+# LuxeBaddie roadmap
 
-The living plan for getting LuxeBaddy from idea to a store that takes money and runs itself. Updated as work lands.
+The living plan for getting LuxeBaddie from idea to a store that takes money and runs itself. Updated as work lands.
 
 **Done means:** a live store that sells products and generates revenue, with day-to-day operations automated.
 
@@ -50,11 +50,11 @@ Things only the business owner can decide or sign. These can run in parallel wit
 
 - [ ] **(you)** Shortlist 3-5 dropship hair vendors and order samples of each core product. Judge hair quality, lace, shedding, packaging and real delivery time
 - [ ] **(you)** Pick the vendor(s). Get their price list, shipping times and costs, return terms, and how they take orders (portal, email, API)
-- [ ] **(you)** Register the domain (`luxebaddy.com` or the closest available)
-- [ ] **(you)** Trademark search for "LuxeBaddy" in beauty and hair (USPTO class 3 and 26) before spending on branding
+- [ ] **(you)** Register the domain (`luxebaddie.com` or the closest available)
+- [ ] **(you)** Trademark search for "LuxeBaddie" in beauty and hair (USPTO class 3 and 26) before spending on branding
 - [ ] **(you)** Claim the brand handle on Instagram, TikTok, Facebook and Pinterest
 - [ ] **(you)** Finish Stripe activation for live payments (business details, bank account). Turn on Afterpay and Klarna in Stripe's payment method settings: pay-later matters at wig prices, and no code change is needed
-- [ ] **(you)** Set the public business name and branding in Stripe to LuxeBaddy. The checkout page currently shows "Rumothy LLC" to shoppers
+- [ ] **(you)** Set the public business name and branding in Stripe to LuxeBaddie. The checkout page currently shows "Rumothy LLC" to shoppers
 - [ ] **(you)** Secure the Stripe Dashboard login with a passkey or authenticator app rather than SMS codes
 - [ ] **(you)** Decide store policies: shipping times, returns and exchanges (worn or opened hair and lashes are normally final sale for hygiene), order cancellation
 - [ ] **(you)** Sales tax: confirm with a tax advisor where you must collect. Then in Stripe Tax set the head office address, choose the product tax code for hair goods from Stripe's list, and add a registration for each place you are registered. Only after that do we switch tax collection on; without a registration Stripe collects nothing and gives no warning

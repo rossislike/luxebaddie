@@ -1,11 +1,11 @@
-import type { PricedBasket, PricedLine } from "@luxebaddy/contracts";
+import type { PricedBasket, PricedLine } from "@luxebaddie/contracts";
 import type Stripe from "stripe";
 import type { StripeProvider } from "../../shared/adapters/stripe-client";
 import type { CheckoutGateway } from "../application/ports";
 
 export type StripeCheckoutConfig = {
   stage: string;
-  /** Where Stripe sends the shopper back to, e.g. https://luxebaddy.com */
+  /** Where Stripe sends the shopper back to, e.g. https://luxebaddie.com */
   storefrontUrl: string;
   automaticTax: boolean;
 };
@@ -14,7 +14,7 @@ export type StripeCheckoutConfig = {
  * Labels every session this integration creates, so its conversion can be
  * tracked and compared with other checkout flows in the Stripe Dashboard.
  */
-const INTEGRATION_IDENTIFIER = "luxebaddy_bag_checkout_qhzvtkwm";
+const INTEGRATION_IDENTIFIER = "luxebaddie_bag_checkout_qhzvtkwm";
 
 /** US pricing: listed prices exclude sales tax, which is added at checkout when it applies. */
 const TAX_BEHAVIOR = "exclusive";

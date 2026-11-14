@@ -8,12 +8,12 @@ import { LbMonitoring } from "./monitoring";
 import { LbQueue } from "./queue";
 import type { StageConfig } from "./stage-config";
 
-interface LuxeBaddyStackProps extends StackProps {
+interface LuxeBaddieStackProps extends StackProps {
   config: StageConfig;
 }
 
-export class LuxeBaddyStack extends Stack {
-  constructor(scope: Construct, id: string, props: LuxeBaddyStackProps) {
+export class LuxeBaddieStack extends Stack {
+  constructor(scope: Construct, id: string, props: LuxeBaddieStackProps) {
     super(scope, id, props);
     const { config } = props;
 

@@ -1,4 +1,4 @@
-import type { BasketItem, CheckoutResponse, PricedBasket } from "@luxebaddy/contracts";
+import type { BasketItem, CheckoutResponse, PricedBasket } from "@luxebaddie/contracts";
 import { ApiError, apiFetch } from "@/lib/api";
 
 /**
@@ -15,7 +15,7 @@ export type BasketState = {
   error: string | null;
 };
 
-const STORAGE_KEY = "luxebaddy.basketId";
+const STORAGE_KEY = "luxebaddie.basketId";
 const SERVER_STATE: BasketState = { basket: null, loading: true, saving: false, error: null };
 
 let state: BasketState = SERVER_STATE;

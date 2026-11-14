@@ -45,9 +45,9 @@ export function stageConfigFor(stage: string): StageConfig {
 export function secretParameterNames(stage: string) {
   return {
     /** Restricted key for the basket service. Stripe permission: Checkout Sessions (write). */
-    basketStripeKey: `/luxebaddy/${stage}/stripe/basket-api-key`,
+    basketStripeKey: `/luxebaddie/${stage}/stripe/basket-api-key`,
     /** Restricted key for the payment service. Stripe permissions: Checkout Sessions (read), Products (read). */
-    paymentStripeKey: `/luxebaddy/${stage}/stripe/payment-api-key`,
-    stripeWebhookSecret: `/luxebaddy/${stage}/stripe/webhook-secret`,
+    paymentStripeKey: `/luxebaddie/${stage}/stripe/payment-api-key`,
+    stripeWebhookSecret: `/luxebaddie/${stage}/stripe/webhook-secret`,
   };
 }

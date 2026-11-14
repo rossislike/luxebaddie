@@ -1,4 +1,4 @@
-import type { BasketItem, PricedBasket, Product } from "@luxebaddy/contracts";
+import type { BasketItem, PricedBasket, Product } from "@luxebaddie/contracts";
 
 /** Where baskets are kept. A basket that was never saved is simply empty. */
 export interface BasketRepository {

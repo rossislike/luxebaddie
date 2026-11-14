@@ -5,7 +5,7 @@
  * deliberately avoids material claims (hair origin, grade) that only the
  * chosen vendor can back up.
  */
-import type { Product, Variant } from "@luxebaddy/contracts";
+import type { Product, Variant } from "@luxebaddie/contracts";
 
 const dollars = (amount: number) => Math.round(amount * 100);
 

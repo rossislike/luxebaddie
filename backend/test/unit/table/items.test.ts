@@ -1,4 +1,4 @@
-import type { Order, Product } from "@luxebaddy/contracts";
+import type { Order, Product } from "@luxebaddie/contracts";
 import { describe, expect, it } from "vitest";
 import { seedProducts } from "../../../scripts/seed-data";
 import { orderFromCheckout } from "../../../src/ordering/domain/order";

@@ -1,4 +1,4 @@
-import { checkoutCompletedSchema } from "@luxebaddy/contracts";
+import { checkoutCompletedSchema } from "@luxebaddie/contracts";
 import { eventQueueConsumer, type QueueHandler } from "../../shared/adapters/event-queue";
 import type { OrderService } from "../application/order-service";
 

@@ -1,4 +1,4 @@
-import { EVENTS } from "@luxebaddy/contracts";
+import { EVENTS } from "@luxebaddie/contracts";
 import { EventBus, Rule } from "aws-cdk-lib/aws-events";
 import { SqsQueue } from "aws-cdk-lib/aws-events-targets";
 import { Construct } from "constructs";

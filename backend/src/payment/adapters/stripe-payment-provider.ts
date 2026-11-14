@@ -1,4 +1,4 @@
-import type { CheckoutCompleted, CheckoutPaymentFailed, OrderItem } from "@luxebaddy/contracts";
+import type { CheckoutCompleted, CheckoutPaymentFailed, OrderItem } from "@luxebaddie/contracts";
 import type Stripe from "stripe";
 import type { SecretReader } from "../../shared/adapters/ssm-secrets";
 import type { StripeProvider } from "../../shared/adapters/stripe-client";

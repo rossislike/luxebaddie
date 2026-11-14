@@ -1,4 +1,4 @@
-import type { FulfillmentStatus, Order } from "@luxebaddy/contracts";
+import type { FulfillmentStatus, Order } from "@luxebaddie/contracts";
 import { applicationAttributes, assertType, type TableItem, type TableKey } from "./schema";
 
 /**

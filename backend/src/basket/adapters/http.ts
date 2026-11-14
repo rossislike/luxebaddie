@@ -1,4 +1,4 @@
-import { basketIdSchema, type CheckoutResponse, putBasketRequestSchema } from "@luxebaddy/contracts";
+import { basketIdSchema, type CheckoutResponse, putBasketRequestSchema } from "@luxebaddie/contracts";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { type HttpHandler, httpRouter, parseBody, pathParam } from "../../shared/adapters/api-gateway";
 import { invalid } from "../../shared/errors";
