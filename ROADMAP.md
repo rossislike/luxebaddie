@@ -14,7 +14,7 @@ _Last updated: 2026-11-14_
 
 **Next up:** put the storefront online.
 
-**Waiting on you:** roll the old Stripe key that was pasted into chat (Phase 1), and the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy.
+**Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy.
 
 ## Decisions made
 
@@ -43,7 +43,7 @@ The machinery: a site customers can buy from and a backend that records what the
 - [x] Database redesigned as a single DynamoDB table (see `backend/DATA-MODEL.md`): no table scans, paged order lists, and orders can be looked up by customer email for support
 - [x] Everything on AWS renamed from the old "LuxeBaddy" spelling to "LuxeBaddie". The `dev` environment was rebuilt under the new name, its data moved across, and a fresh test purchase ($189, order LB-BRM57ZTFYA) confirmed it works (2026-11-14)
 - [x] `dev` moved to its own Stripe sandbox with one restricted key per service. A test purchase through the real storefront and Stripe Checkout ($19.95, order LB-ADY5PH12N5) confirmed every key has the permissions it needs, with no errors in any service (2026-11-14)
-- [ ] **(you)** Roll (delete) the old `sk_test_` key that was pasted into chat. Nothing uses it any more
+- [x] Old `sk_test_` key that was pasted into chat rolled in the Stripe Dashboard (2026-11-14)
 - [ ] Put the storefront online on AWS (S3 + CloudFront) with security headers, rebuilt automatically when the catalog changes
 - [ ] Mobile pass on every page (most ad traffic will be on phones)
 
