@@ -23,3 +23,7 @@ coverage/
 *.pem
 npm-debug.log*
 .pnpm-debug.log*
+
+# locally installed agent skills (Claude Code and Codex)
+.claude/skills/
+.agents/skills/
