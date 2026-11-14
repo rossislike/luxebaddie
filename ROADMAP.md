@@ -41,6 +41,7 @@ The machinery: a site customers can buy from and a backend that records what the
 - [x] Connect `dev` to Stripe and complete a full test purchase with a test card (2026-11-14)
 - [x] Stripe integration reviewed against Stripe's own best practices: orders created from verified webhooks only, failed pay-later payments handled, webhook restricted to Stripe's addresses, one least-privilege key per service, commits containing keys are blocked
 - [x] Database redesigned as a single DynamoDB table (see `backend/DATA-MODEL.md`): no table scans, paged order lists, and orders can be looked up by customer email for support
+- [x] Everything on AWS renamed from the old "LuxeBaddy" spelling to "LuxeBaddie". The `dev` environment was rebuilt under the new name, its data moved across, and a fresh test purchase ($189, order LB-BRM57ZTFYA) confirmed it works (2026-11-14)
 - [ ] **(you)** Replace the Stripe test key that was pasted into chat. In the Stripe Dashboard: create a sandbox for dev, create the three restricted keys listed in the README's Stripe section, give them to the setup script, then roll (delete) the old `sk_test_` key
 - [ ] Put the storefront online on AWS (S3 + CloudFront) with security headers, rebuilt automatically when the catalog changes
 - [ ] Mobile pass on every page (most ad traffic will be on phones)
