@@ -68,7 +68,7 @@ Use cases are tested with in-memory fakes, so the business rules run without AWS
 - **No circuit breaker.** The only third-party dependency on a request path is Stripe at checkout. It fails fast (4 second timeout) and Lambda has no shared thread pool to exhaust, so a breaker would add state without adding protection. Revisit if synchronous service-to-service calls are introduced.
 - **One DynamoDB table holds everything** (single-table design): products, baskets and orders, arranged so every read is a single-item lookup or one contiguous range, never a scan. The model is documented in [backend/DATA-MODEL.md](backend/DATA-MODEL.md); read it before touching keys.
 - **Services still own their data.** IAM lets each Lambda touch only items whose key starts with its own prefix. The basket service has read-only access to products for pricing, which avoids a synchronous call to the product service.
-- **Secrets** (Stripe keys) live encrypted in SSM Parameter Store, never in code, environment variables or templates. A pre-commit hook (`.githooks/pre-commit`) refuses commits that contain a Stripe key.
+- **Secrets** (Stripe keys) live encrypted in SSM Parameter Store, never in code, environment variables or templates. A pre-commit hook (`.githooks/pre-commit`) refuses commits that contain a Stripe key, and CI scans every commit for leaked keys of any kind.
 - **When a service must both save data and publish an event** (for example a future `OrderPlaced`), publish from the table's DynamoDB Stream rather than making two separate calls, so the two can never disagree.
 
 ## Stripe
@@ -114,6 +114,34 @@ STRIPE_BASKET_KEY=rk_test_... STRIPE_PAYMENT_KEY=rk_test_... STRIPE_SETUP_KEY=rk
 cp web/.env.example web/.env.local   # set NEXT_PUBLIC_API_URL to the stack's ApiUrl output
 pnpm dev                             # http://localhost:3000
 pnpm build                           # static site in web/out
+```
+
+### Getting a change into `main`
+
+Nobody pushes to `main` directly. Every change goes through a short-lived branch and a pull request:
+
+```bash
+git switch -c my-change      # branch off main
+# ...commit...
+git push -u origin my-change
+gh pr create                 # CI starts on its own
+```
+
+CI (`.github/workflows/ci.yml`) runs on every pull request and needs no AWS or Stripe credentials:
+
+| Check | What it runs | Run it locally |
+| --- | --- | --- |
+| Typecheck | TypeScript across the storefront, backend and contracts | `pnpm typecheck` |
+| Lint | ESLint on the storefront | `pnpm lint` |
+| Unit tests | Vitest for the storefront and backend | `pnpm test` |
+| CDK build | Bundles the Lambdas and builds the `dev` CloudFormation template | `pnpm --filter @luxebaddie/backend synth` |
+| Secret scan | gitleaks over every commit, with the rules in `.gitleaks.toml` | `gitleaks git .` |
+
+A ruleset on `main` blocks the merge until the "CI passed" check is green, and blocks direct pushes, force pushes and deleting the branch. It applies to everyone, repository admins included. The ruleset is kept in `.github/rulesets/main.json`; GitHub does not read that file, so after editing it apply it with:
+
+```bash
+gh api repos/rossislike/luxebaddie/rulesets --jq '.[] | select(.name == "main") | .id'   # find the ruleset id
+gh api --method PUT repos/rossislike/luxebaddie/rulesets/<id> --input .github/rulesets/main.json
 ```
 
 Admin routes (`/admin/*`) accept only requests signed with AWS credentials. They cover the catalog, the fulfillment queue (`/admin/order`), a single order, and one customer's orders by email (`/admin/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. `backend/scripts/lib/aws.ts` has a ready-made signed `fetch`.

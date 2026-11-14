@@ -1,0 +1,16 @@
+# Secret scanning rules, used by CI (.github/workflows/ci.yml) and by
+# `gitleaks git .` locally.
+
+title = "LuxeBaddie secret scanning"
+
+# Start from the built-in rules, which already cover Stripe API keys
+# (sk_ and rk_), AWS keys, private keys and many others.
+[extend]
+useDefault = true
+
+# The built-in rules do not cover Stripe webhook signing secrets.
+[[rules]]
+id = "stripe-webhook-signing-secret"
+description = "Stripe webhook signing secret"
+regex = '''\bwhsec_[0-9A-Za-z]{16,}'''
+keywords = ["whsec_"]
