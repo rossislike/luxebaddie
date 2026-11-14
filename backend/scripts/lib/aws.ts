@@ -4,6 +4,9 @@ import { AwsClient } from "aws4fetch";
 
 export type StackOutputs = {
   ApiUrl: string;
+  StorefrontUrl: string;
+  StorefrontBucketName: string;
+  StorefrontBuildProject: string;
   StripeWebhookUrl: string;
   EventBusName: string;
   TableName: string;

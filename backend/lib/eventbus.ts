@@ -21,13 +21,26 @@ export class LbEventBus extends Construct {
    * workflows) subscribe here with their own queue; the publisher never changes.
    */
   subscribeToCheckoutCompleted(subscribers: LbQueue[]) {
-    const rule = new Rule(this, "CheckoutCompletedRule", {
+    this.fanOut(
+      { id: "CheckoutCompletedRule", description: "When the payment service confirms a paid checkout", event: EVENTS.checkoutCompleted },
+      subscribers,
+    );
+  }
+
+  /** Fans CatalogChanged (published by the product service) out to every subscriber's queue. */
+  subscribeToCatalogChanged(subscribers: LbQueue[]) {
+    this.fanOut(
+      { id: "CatalogChangedRule", description: "When a product is added, edited or removed", event: EVENTS.catalogChanged },
+      subscribers,
+    );
+  }
+
+  private fanOut(subscription: Subscription, subscribers: LbQueue[]) {
+    const { source, detailType } = subscription.event;
+    const rule = new Rule(this, subscription.id, {
       eventBus: this.bus,
-      description: "When the payment service confirms a paid checkout",
-      eventPattern: {
-        source: [EVENTS.checkoutCompleted.source],
-        detailType: [EVENTS.checkoutCompleted.detailType],
-      },
+      description: subscription.description,
+      eventPattern: { source: [source], detailType: [detailType] },
     });
     for (const subscriber of subscribers) {
       // If EventBridge itself cannot deliver, the event lands in the same dead-letter queue.
@@ -35,3 +48,5 @@ export class LbEventBus extends Construct {
     }
   }
 }
+
+type Subscription = { id: string; description: string; event: (typeof EVENTS)[keyof typeof EVENTS] };

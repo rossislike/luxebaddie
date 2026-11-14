@@ -21,6 +21,14 @@ export const EVENTS = {
     source: "com.luxebaddie.payment",
     detailType: "CheckoutPaymentFailed",
   },
+  /**
+   * A product was added, edited or removed. Published by the product service
+   * from the table's change stream, so it can never disagree with what was saved.
+   */
+  catalogChanged: {
+    source: "com.luxebaddie.product",
+    detailType: "CatalogChanged",
+  },
 } as const;
 
 export const checkoutCompletedSchema = z.object({
@@ -51,3 +59,9 @@ export const checkoutPaymentFailedSchema = z.object({
   customerName: z.string().nullable(),
 });
 export type CheckoutPaymentFailed = z.infer<typeof checkoutPaymentFailedSchema>;
+
+export const catalogChangedSchema = z.object({
+  productId: z.string().min(1),
+  change: z.enum(["saved", "removed"]),
+});
+export type CatalogChanged = z.infer<typeof catalogChangedSchema>;

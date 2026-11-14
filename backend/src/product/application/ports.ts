@@ -1,4 +1,4 @@
-import type { CategorySlug, Product } from "@luxebaddie/contracts";
+import type { CatalogChanged, CategorySlug, Product } from "@luxebaddie/contracts";
 
 /**
  * Where products are kept. Implemented by an adapter (DynamoDB today).
@@ -12,4 +12,9 @@ export interface ProductRepository {
   findAll(): Promise<Product[]>;
   save(product: Product): Promise<void>;
   remove(id: string): Promise<void>;
+}
+
+/** Announces catalog changes to the rest of the system. */
+export interface CatalogEventPublisher {
+  publishChanges(changes: CatalogChanged[]): Promise<void>;
 }

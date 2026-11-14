@@ -46,10 +46,15 @@ function errorResponse(routeKey: string, error: unknown): Pick<APIGatewayProxyRe
 }
 
 function corsHeaders(event: APIGatewayProxyEvent): Record<string, string> {
+  const origin = allowedOrigin(event);
+  return origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {};
+}
+
+/** The storefront the browser called from, if it is one of ours. Undefined for any other caller. */
+export function allowedOrigin(event: APIGatewayProxyEvent): string | undefined {
   const allowedOrigins = (process.env.ALLOWED_ORIGINS ?? "").split(",").filter(Boolean);
   const origin = header(event, "origin");
-  if (!origin || !allowedOrigins.includes(origin)) return {};
-  return { "Access-Control-Allow-Origin": origin, Vary: "Origin" };
+  return origin && allowedOrigins.includes(origin) ? origin : undefined;
 }
 
 /** Reads a header regardless of the capitalisation the client used. */

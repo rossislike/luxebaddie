@@ -15,6 +15,25 @@ beforeAll(() => {
   template = Template.fromStack(stack);
 }, 120_000);
 
+type Resource = { [key: string]: any };
+
+/** The Lambdas we wrote, leaving out the helper functions the CDK adds for its own housekeeping. */
+const serviceFunctions = (): Record<string, Resource> =>
+  Object.fromEntries(
+    Object.entries(template.findResources("AWS::Lambda::Function")).filter(([id]) => id.startsWith("Microservices")),
+  );
+
+function ruleMatching(eventPattern: Record<string, unknown>): Resource {
+  const [rule] = Object.values(template.findResources("AWS::Events::Rule", { Properties: { EventPattern: eventPattern } }));
+  if (!rule) throw new Error(`No rule matches ${JSON.stringify(eventPattern)}`);
+  return rule;
+}
+
+const statementsOf = (policyType: string, idPart: string): Record<string, any>[] =>
+  Object.entries(template.findResources(policyType))
+    .filter(([id]) => id.includes(idPart))
+    .flatMap(([, policy]) => policy.Properties.PolicyDocument.Statement);
+
 describe("LuxeBaddieStack", () => {
   it("stores everything in one on-demand table with generic keys and expiry", () => {
     template.resourceCountIs("AWS::DynamoDB::Table", 1);
@@ -73,39 +92,48 @@ describe("LuxeBaddieStack", () => {
     expect(dynamoGrantsOf("payment")).toEqual([]);
   });
 
-  it("creates one Lambda per microservice", () => {
-    template.resourceCountIs("AWS::Lambda::Function", 4);
-    template.allResourcesProperties("AWS::Lambda::Function", { Runtime: "nodejs24.x", Architectures: ["arm64"] });
+  it("creates one Lambda per microservice, plus the product service's change relay", () => {
+    expect(Object.keys(serviceFunctions()).map((id) => id.replace(/LambdaFunction.*/, "")).sort()).toEqual([
+      "Microservicesbasket",
+      "Microservicesordering",
+      "Microservicespayment",
+      "Microservicesproduct",
+      "MicroservicesproductChangeRelay",
+      "Microservicesstorefront",
+    ]);
+    for (const fn of Object.values(serviceFunctions())) {
+      expect(fn.Properties).toMatchObject({ Runtime: "nodejs24.x", Architectures: ["arm64"] });
+    }
   });
 
   it("fans CheckoutCompleted out to one queue per subscriber", () => {
-    template.hasResourceProperties("AWS::Events::Rule", {
-      EventPattern: { source: ["com.luxebaddie.payment"], "detail-type": ["CheckoutCompleted"] },
-    });
-    const [rule] = Object.values(template.findResources("AWS::Events::Rule"));
-    expect(rule?.Properties.Targets).toHaveLength(2);
-    for (const target of rule?.Properties.Targets ?? []) {
+    const rule = ruleMatching({ source: ["com.luxebaddie.payment"], "detail-type": ["CheckoutCompleted"] });
+
+    expect(rule.Properties.Targets).toHaveLength(2);
+    for (const target of rule.Properties.Targets) {
       expect(target.DeadLetterConfig).toBeDefined();
     }
   });
 
   it("gives every subscriber queue a dead-letter queue, an alarm and per-message retries", () => {
-    template.resourceCountIs("AWS::SQS::Queue", 4);
-    template.resourcePropertiesCountIs("AWS::SQS::Queue", { RedrivePolicy: Match.objectLike({ maxReceiveCount: 5 }) }, 2);
+    const subscribers = 3; // order, paid basket, storefront rebuild
+    template.resourcePropertiesCountIs("AWS::SQS::Queue", { RedrivePolicy: Match.anyValue() }, subscribers);
     template.resourcePropertiesCountIs(
       "AWS::Lambda::EventSourceMapping",
       { FunctionResponseTypes: ["ReportBatchItemFailures"] },
-      2,
+      subscribers,
     );
     template.resourcePropertiesCountIs(
       "AWS::CloudWatch::Alarm",
       { MetricName: "ApproximateNumberOfMessagesVisible" },
-      2,
+      subscribers + 1, // and the catalog change feed's dead-letter queue
     );
   });
 
   it("traces requests end to end", () => {
-    template.allResourcesProperties("AWS::Lambda::Function", { TracingConfig: { Mode: "Active" } });
+    for (const fn of Object.values(serviceFunctions())) {
+      expect(fn.Properties.TracingConfig).toEqual({ Mode: "Active" });
+    }
     template.hasResourceProperties("AWS::ApiGateway::Stage", { TracingEnabled: true });
   });
 
@@ -173,5 +201,181 @@ describe("LuxeBaddieStack", () => {
       "POST /payment/webhook",
       "PUT /basket/{id}",
     ]);
+  });
+});
+
+describe("catalog change feed", () => {
+  it("records every write to the table, with the item before and after", () => {
+    template.hasResourceProperties("AWS::DynamoDB::Table", {
+      StreamSpecification: { StreamViewType: "NEW_AND_OLD_IMAGES" },
+    });
+  });
+
+  it("feeds product changes, and only those, to the change relay", () => {
+    const [feed] = Object.values(template.findResources("AWS::Lambda::EventSourceMapping")).filter(
+      (mapping) => JSON.stringify(mapping.Properties.EventSourceArn).includes("StreamArn"),
+    );
+
+    expect(JSON.stringify(feed?.Properties.FunctionName)).toContain("productChangeRelay");
+    expect(feed?.Properties.FilterCriteria.Filters.map((f: { Pattern: string }) => JSON.parse(f.Pattern))).toEqual([
+      { dynamodb: { Keys: { PK: { S: [{ prefix: "PRODUCT#" }] } } } },
+    ]);
+  });
+
+  it("sets aside a change that cannot be relayed instead of blocking the ones behind it", () => {
+    template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+      BisectBatchOnFunctionError: true,
+      MaximumRetryAttempts: 10,
+      DestinationConfig: { OnFailure: Match.anyValue() },
+    });
+  });
+
+  it("keeps the change relay away from the table itself", () => {
+    const actions = statementsOf("AWS::IAM::Policy", "productChangeRelay").flatMap((statement) => statement.Action);
+
+    expect(actions.filter((action) => action.startsWith("dynamodb:")).sort()).toEqual([
+      "dynamodb:DescribeStream",
+      "dynamodb:GetRecords",
+      "dynamodb:GetShardIterator",
+      "dynamodb:ListStreams",
+    ]);
+    expect(actions).toContain("events:PutEvents");
+  });
+});
+
+describe("storefront hosting", () => {
+  it("keeps the site and its logs in private, encrypted, HTTPS-only buckets", () => {
+    template.resourceCountIs("AWS::S3::Bucket", 2);
+    template.allResourcesProperties("AWS::S3::Bucket", {
+      PublicAccessBlockConfiguration: {
+        BlockPublicAcls: true,
+        BlockPublicPolicy: true,
+        IgnorePublicAcls: true,
+        RestrictPublicBuckets: true,
+      },
+      BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: "AES256" } }] },
+      OwnershipControls: { Rules: [{ ObjectOwnership: "BucketOwnerEnforced" }] },
+    });
+    const denyPlainHttp = statementsOf("AWS::S3::BucketPolicy", "StorefrontHosting").filter(
+      (statement) => statement.Effect === "Deny" && statement.Condition?.Bool?.["aws:SecureTransport"] === "false",
+    );
+    expect(denyPlainHttp).toHaveLength(2);
+  });
+
+  it("lets only this distribution, in this account, read the site", () => {
+    const readers = statementsOf("AWS::S3::BucketPolicy", "StorefrontHostingSite").filter(
+      (statement) => statement.Effect === "Allow" && [statement.Action].flat().includes("s3:GetObject"),
+    );
+
+    expect(readers.map((statement) => statement.Principal)).toEqual([{ Service: "cloudfront.amazonaws.com" }]);
+    expect(Object.keys(readers[0]?.Condition.StringEquals)).toEqual(["AWS:SourceArn", "AWS:SourceAccount"]);
+    template.hasResourceProperties("AWS::CloudFront::OriginAccessControl", {
+      OriginAccessControlConfig: { OriginAccessControlOriginType: "s3", SigningBehavior: "always", SigningProtocol: "sigv4" },
+    });
+  });
+
+  it("serves the storefront over HTTPS only, through the page router", () => {
+    template.hasResourceProperties("AWS::CloudFront::Distribution", {
+      DistributionConfig: {
+        DefaultRootObject: "index.html",
+        DefaultCacheBehavior: {
+          ViewerProtocolPolicy: "redirect-to-https",
+          Compress: true,
+          FunctionAssociations: [Match.objectLike({ EventType: "viewer-request" })],
+        },
+      },
+    });
+  });
+
+  it("answers an unknown address with the 404 page", () => {
+    const [distribution] = Object.values(template.findResources("AWS::CloudFront::Distribution"));
+
+    expect(distribution?.Properties.DistributionConfig.CustomErrorResponses).toEqual(
+      [403, 404].map((ErrorCode) => expect.objectContaining({ ErrorCode, ResponseCode: 404, ResponsePagePath: "/404.html" })),
+    );
+  });
+
+  it("adds the security headers to every response", () => {
+    template.hasResourceProperties("AWS::CloudFront::ResponseHeadersPolicy", {
+      ResponseHeadersPolicyConfig: {
+        SecurityHeadersConfig: {
+          StrictTransportSecurity: { AccessControlMaxAgeSec: 63_072_000, IncludeSubdomains: true, Override: true },
+          ContentTypeOptions: { Override: true },
+          FrameOptions: { FrameOption: "DENY", Override: true },
+          ContentSecurityPolicy: { ContentSecurityPolicy: "frame-ancestors 'none'", Override: true },
+          ReferrerPolicy: { ReferrerPolicy: "strict-origin-when-cross-origin", Override: true },
+        },
+        CustomHeadersConfig: {
+          Items: Match.arrayWith([Match.objectLike({ Header: "Permissions-Policy" })]),
+        },
+      },
+    });
+  });
+
+  it("logs every request, without the query string, referrer or cookies", () => {
+    const [delivery] = Object.values(template.findResources("AWS::Logs::Delivery"));
+
+    expect(delivery?.Properties.RecordFields).toContain("cs-uri-stem");
+    for (const sensitive of ["cs-uri-query", "cs(Referer)", "cs(Cookie)"]) {
+      expect(delivery?.Properties.RecordFields).not.toContain(sensitive);
+    }
+  });
+
+  it("tells the services where the storefront is", () => {
+    const { basket } = Object.fromEntries(
+      Object.entries(serviceFunctions()).map(([id, fn]) => [id.replace(/^Microservices|LambdaFunction.*$/g, ""), fn]),
+    );
+    const { STOREFRONT_URL, ALLOWED_ORIGINS } = basket?.Properties.Environment.Variables;
+
+    expect(JSON.stringify(STOREFRONT_URL)).toContain("StorefrontHostingDistribution");
+    expect(JSON.stringify(ALLOWED_ORIGINS)).toContain("StorefrontHostingDistribution");
+    expect(JSON.stringify(ALLOWED_ORIGINS)).toContain("http://localhost:3000");
+  });
+});
+
+describe("storefront build", () => {
+  it("runs one build at a time, so an older build can never overwrite a newer one", () => {
+    template.hasResourceProperties("AWS::CodeBuild::Project", { ConcurrentBuildLimit: 1 });
+  });
+
+  it("builds against this stage's API and publishes to this stage's bucket and distribution", () => {
+    const [project] = Object.values(template.findResources("AWS::CodeBuild::Project"));
+    const variables = project?.Properties.Environment.EnvironmentVariables.map((v: { Name: string }) => v.Name);
+
+    expect(variables.sort()).toEqual(["DISTRIBUTION_ID", "NEXT_PUBLIC_API_URL", "NEXT_PUBLIC_SITE_URL", "SITE_BUCKET"]);
+  });
+
+  it("rebuilds when the catalog changes and when a deployment finishes", () => {
+    const catalogChanged = ruleMatching({ source: ["com.luxebaddie.product"], "detail-type": ["CatalogChanged"] });
+    const deploymentFinished = ruleMatching({
+      source: ["aws.cloudformation"],
+      "detail-type": ["CloudFormation Stack Status Change"],
+      detail: Match.objectLike({
+        "status-details": { status: ["CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"] },
+      }),
+    });
+
+    for (const rule of [catalogChanged, deploymentFinished]) {
+      expect(JSON.stringify(rule.Properties.Targets)).toContain("StorefrontRebuildQueue");
+    }
+  });
+
+  it("collects a burst of changes into one batch for the storefront service", () => {
+    template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
+      MaximumBatchingWindowInSeconds: 30,
+      FunctionResponseTypes: ["ReportBatchItemFailures"],
+    });
+  });
+
+  it("lets the storefront service start builds of this project and nothing else", () => {
+    const [startBuild] = statementsOf("AWS::IAM::Policy", "storefrontLambdaFunction").filter(
+      (statement) => statement.Action === "codebuild:StartBuild",
+    );
+
+    expect(JSON.stringify(startBuild?.Resource)).toContain("StorefrontBuildProject");
+  });
+
+  it("raises an alarm when a build fails", () => {
+    template.hasResourceProperties("AWS::CloudWatch::Alarm", { MetricName: "FailedBuilds", Namespace: "AWS/CodeBuild" });
   });
 });

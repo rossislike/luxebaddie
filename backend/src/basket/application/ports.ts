@@ -14,6 +14,10 @@ export interface Catalog {
 
 /** Takes payment for a basket. Implemented by the Stripe adapter. */
 export interface CheckoutGateway {
-  /** Starts a hosted checkout and returns the URL to send the shopper to. */
-  startCheckout(basket: PricedBasket): Promise<string>;
+  /**
+   * Starts a hosted checkout and returns the URL to send the shopper to.
+   * `returnTo` is the storefront the shopper came from, e.g. http://localhost:3000;
+   * they land back there after paying. Without it they return to the stage's main storefront.
+   */
+  startCheckout(basket: PricedBasket, returnTo?: string): Promise<string>;
 }

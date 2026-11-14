@@ -1,9 +1,11 @@
 export type StageConfig = {
   stage: string;
-  /** Where Stripe sends shoppers after checkout. No trailing slash. */
-  storefrontUrl: string;
-  /** Browser origins allowed to call the API (CORS). */
-  allowedOrigins: string[];
+  /**
+   * Storefronts other than the stage's own hosted one (lib/storefront-hosting.ts)
+   * that may call the API and be returned to after checkout. For local
+   * development; a production stage leaves this empty. No trailing slashes.
+   */
+  localStorefrontOrigins: string[];
   /** Keep tables (and their data) if the stack is deleted, and enable point-in-time recovery. */
   retainData: boolean;
   /**
@@ -20,13 +22,13 @@ export type StageConfig = {
 const stages: Record<string, StageConfig> = {
   dev: {
     stage: "dev",
-    storefrontUrl: "http://localhost:3000",
-    allowedOrigins: ["http://localhost:3000"],
+    localStorefrontOrigins: ["http://localhost:3000"],
     retainData: false,
     stripeAutomaticTax: false,
   },
   // prod is added when the domain is registered (see ROADMAP.md). It must set
-  // retainData: true and use the live storefront URL.
+  // retainData: true, leave localStorefrontOrigins empty, and serve the
+  // storefront from the real domain.
 };
 
 export function stageConfigFor(stage: string): StageConfig {

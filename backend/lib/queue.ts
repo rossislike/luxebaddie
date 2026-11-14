@@ -6,7 +6,22 @@ import { Construct } from "constructs";
 
 interface LbQueueProps {
   consumer: IFunction;
+  /**
+   * Hand the consumer everything that arrives within this window as one batch,
+   * for consumers that do one piece of work per batch rather than per message.
+   * By default messages are delivered as soon as they arrive.
+   */
+  collectFor?: Duration;
+  /** Deliveries a message gets before it moves to the dead-letter queue. */
+  maxReceiveCount?: number;
 }
+
+/** Six times the consumers' 25 second timeout (lib/microservices.ts). */
+const CONSUMER_PROCESSING_ALLOWANCE = Duration.seconds(150);
+
+/** The most messages SQS hands a Lambda at once without a collection window. */
+const DEFAULT_BATCH_SIZE = 10;
+const COLLECTED_BATCH_SIZE = 100;
 
 /**
  * A subscriber's inbox: events wait here until the consumer Lambda has
@@ -27,16 +42,18 @@ export class LbQueue extends Construct {
     });
 
     this.queue = new Queue(this, "Queue", {
-      // AWS guidance: at least six times the consumer's timeout, so a message
-      // still being processed is never handed to a second consumer.
-      visibilityTimeout: Duration.seconds(150),
+      // AWS guidance: at least six times the consumer's timeout, plus any
+      // collection window, so a message still being processed is never handed
+      // to a second consumer.
+      visibilityTimeout: CONSUMER_PROCESSING_ALLOWANCE.plus(props.collectFor ?? Duration.seconds(0)),
       encryption: QueueEncryption.SQS_MANAGED,
-      deadLetterQueue: { queue: this.deadLetterQueue, maxReceiveCount: 5 },
+      deadLetterQueue: { queue: this.deadLetterQueue, maxReceiveCount: props.maxReceiveCount ?? 5 },
     });
 
     props.consumer.addEventSource(
       new SqsEventSource(this.queue, {
-        batchSize: 10,
+        batchSize: props.collectFor ? COLLECTED_BATCH_SIZE : DEFAULT_BATCH_SIZE,
+        maxBatchingWindow: props.collectFor,
         reportBatchItemFailures: true,
       }),
     );

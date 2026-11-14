@@ -1,6 +1,6 @@
 import { basketIdSchema, type CheckoutResponse, putBasketRequestSchema } from "@luxebaddie/contracts";
 import type { APIGatewayProxyEvent } from "aws-lambda";
-import { type HttpHandler, httpRouter, parseBody, pathParam } from "../../shared/adapters/api-gateway";
+import { allowedOrigin, type HttpHandler, httpRouter, parseBody, pathParam } from "../../shared/adapters/api-gateway";
 import { invalid } from "../../shared/errors";
 import type { BasketService } from "../application/basket-service";
 
@@ -24,8 +24,9 @@ export function basketHttpHandler(basket: BasketService): HttpHandler {
       return { statusCode: 204, body: null };
     },
 
+    // The shopper returns to whichever of our storefronts made the call (hosted, or local in development).
     "POST /basket/{id}/checkout": async (event) => ({
-      body: { url: await basket.startCheckout(basketId(event)) } satisfies CheckoutResponse,
+      body: { url: await basket.startCheckout(basketId(event), allowedOrigin(event)) } satisfies CheckoutResponse,
     }),
   });
 }

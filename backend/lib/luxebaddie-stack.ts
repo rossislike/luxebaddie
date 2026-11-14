@@ -1,12 +1,15 @@
-import { CfnOutput, Stack, type StackProps } from "aws-cdk-lib";
+import { CfnOutput, Duration, Stack, type StackProps } from "aws-cdk-lib";
 import type { Construct } from "constructs";
 import { LbApiGateway } from "./apigateway";
+import { LbChangeFeed } from "./change-feed";
 import { LbDatabase } from "./database";
 import { LbEventBus } from "./eventbus";
 import { LbMicroservices } from "./microservices";
 import { LbMonitoring } from "./monitoring";
 import { LbQueue } from "./queue";
 import type { StageConfig } from "./stage-config";
+import { LbStorefrontBuild } from "./storefront-build";
+import { LbStorefrontHosting } from "./storefront-hosting";
 
 interface LuxeBaddieStackProps extends StackProps {
   config: StageConfig;
@@ -21,14 +24,22 @@ export class LuxeBaddieStack extends Stack {
 
     const eventBus = new LbEventBus(this, "EventBus");
 
+    // The storefront's address exists before anything is published to it, so
+    // the services can be told where shoppers come from and return to.
+    const storefrontHosting = new LbStorefrontHosting(this, "StorefrontHosting", { config });
+    const allowedOrigins = [storefrontHosting.url, ...config.localStorefrontOrigins];
+
     const microservices = new LbMicroservices(this, "Microservices", {
       config,
       table: database.table,
       eventBus: eventBus.bus,
+      storefrontUrl: storefrontHosting.url,
+      allowedOrigins,
     });
 
     const apigateway = new LbApiGateway(this, "ApiGateway", {
       config,
+      allowedOrigins,
       productMicroservice: microservices.productMicroservice,
       basketMicroservice: microservices.basketMicroservice,
       paymentMicroservice: microservices.paymentMicroservice,
@@ -44,6 +55,33 @@ export class LuxeBaddieStack extends Stack {
     });
     eventBus.subscribeToCheckoutCompleted([orderQueue, paidBasketQueue]);
 
+    // No trailing slash, so callers can append paths like `${ApiUrl}/product`.
+    const { api } = apigateway;
+    const apiUrl = `https://${api.restApiId}.execute-api.${this.region}.${this.urlSuffix}/${api.deploymentStage.stageName}`;
+
+    // Product writes -> change stream -> CatalogChanged -> rebuild queue -> storefront build.
+    const catalogChangeFeed = new LbChangeFeed(this, "CatalogChangeFeed", {
+      table: database.table,
+      keyPrefix: "PRODUCT#",
+      relay: microservices.productChangeRelay,
+    });
+    const storefrontRebuildQueue = new LbQueue(this, "StorefrontRebuildQueue", {
+      consumer: microservices.storefrontMicroservice,
+      // A burst of catalog edits (seeding, a bulk price change) becomes one build.
+      collectFor: Duration.seconds(30),
+      // A request that arrives while a build is running is retried until that
+      // build ends. Ten deliveries, three minutes apart, is half an hour.
+      maxReceiveCount: 10,
+    });
+    eventBus.subscribeToCatalogChanged([storefrontRebuildQueue]);
+    const storefrontBuild = new LbStorefrontBuild(this, "StorefrontBuild", {
+      config,
+      hosting: storefrontHosting,
+      apiUrl,
+      publisher: microservices.storefrontMicroservice,
+      rebuildQueue: storefrontRebuildQueue,
+    });
+
     const monitoring = new LbMonitoring(this, "Monitoring", {
       config,
       api: apigateway.api,
@@ -52,13 +90,17 @@ export class LuxeBaddieStack extends Stack {
         basket: microservices.basketMicroservice,
         payment: microservices.paymentMicroservice,
         ordering: microservices.orderingMicroservice,
+        productChangeRelay: microservices.productChangeRelay,
+        storefront: microservices.storefrontMicroservice,
       },
-      queues: { order: orderQueue, paidBasket: paidBasketQueue },
+      queues: { order: orderQueue, paidBasket: paidBasketQueue, storefrontRebuild: storefrontRebuildQueue },
+      changeFeedDeadLetterQueues: { catalog: catalogChangeFeed.deadLetterQueue },
+      storefront: { distribution: storefrontHosting.distribution, build: storefrontBuild.project },
     });
 
-    // No trailing slash, so callers can append paths like `${ApiUrl}/product`.
-    const { api } = apigateway;
-    const apiUrl = `https://${api.restApiId}.execute-api.${this.region}.${this.urlSuffix}/${api.deploymentStage.stageName}`;
+    new CfnOutput(this, "StorefrontUrl", { value: storefrontHosting.url });
+    new CfnOutput(this, "StorefrontBucketName", { value: storefrontHosting.bucket.bucketName });
+    new CfnOutput(this, "StorefrontBuildProject", { value: storefrontBuild.project.projectName });
     new CfnOutput(this, "ApiUrl", { value: apiUrl });
     new CfnOutput(this, "StripeWebhookUrl", { value: `${apiUrl}/payment/webhook` });
     new CfnOutput(this, "EventBusName", { value: eventBus.bus.eventBusName });

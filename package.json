@@ -12,6 +12,6 @@
     "deploy:dev": "pnpm --filter @luxebaddie/backend deploy:dev",
     "seed:dev": "pnpm --filter @luxebaddie/backend seed:dev",
     "test:e2e": "pnpm --filter @luxebaddie/backend test:e2e",
-    "prepare": "git config core.hooksPath .githooks"
+    "prepare": "if [ -e .git ]; then git config core.hooksPath .githooks; fi"
   }
 }
