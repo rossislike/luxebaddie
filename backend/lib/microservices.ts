@@ -15,15 +15,23 @@ interface LbMicroservicesProps {
   config: StageConfig;
   table: ITable;
   eventBus: IEventBus;
+  /** The stage's main storefront: where shoppers return to after checkout. No trailing slash. */
+  storefrontUrl: string;
+  /** Browser origins allowed to call the API (CORS): the stage's storefronts. */
+  allowedOrigins: string[];
 }
 
 const sourcePath = (relative: string) => fileURLToPath(new URL(`../${relative}`, import.meta.url));
 
 export class LbMicroservices extends Construct {
   public readonly productMicroservice: NodejsFunction;
+  /** Publishes CatalogChanged from the table's change stream. Fed by an LbChangeFeed. */
+  public readonly productChangeRelay: NodejsFunction;
   public readonly basketMicroservice: NodejsFunction;
   public readonly paymentMicroservice: NodejsFunction;
   public readonly orderingMicroservice: NodejsFunction;
+  /** Starts storefront rebuilds. Given its build project by LbStorefrontBuild. */
+  public readonly storefrontMicroservice: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: LbMicroservicesProps) {
     super(scope, id);
@@ -56,7 +64,7 @@ export class LbMicroservices extends Construct {
         environment: {
           NODE_OPTIONS: "--enable-source-maps",
           STAGE: config.stage,
-          ALLOWED_ORIGINS: config.allowedOrigins.join(","),
+          ALLOWED_ORIGINS: props.allowedOrigins.join(","),
           ...environment,
         },
         ...extra,
@@ -92,10 +100,19 @@ export class LbMicroservices extends Construct {
     allowItems(this.productMicroservice, ["GetItem", "PutItem", "DeleteItem"], ["PRODUCT#"]);
     allowIndexQuery(this.productMicroservice, GSI1, ["CATALOG"]);
 
+    // The product service's second Lambda. It has no table access: its only
+    // input is the change stream, its only output the event bus.
+    this.productChangeRelay = createFunction(
+      "productChangeRelay",
+      { EVENT_BUS_NAME: props.eventBus.eventBusName },
+      { entry: sourcePath("src/product/change-relay.ts") },
+    );
+    props.eventBus.grantPutEventsTo(this.productChangeRelay);
+
     // Basket microservice: the bag, priced from the catalog (read-only), and the hand-off to Stripe Checkout.
     this.basketMicroservice = createFunction("basket", {
       TABLE_NAME: table.tableName,
-      STOREFRONT_URL: config.storefrontUrl,
+      STOREFRONT_URL: props.storefrontUrl,
       STRIPE_API_KEY_PARAM: secrets.basketStripeKey,
       STRIPE_AUTOMATIC_TAX: String(config.stripeAutomaticTax),
     });
@@ -118,6 +135,9 @@ export class LbMicroservices extends Construct {
     allowItems(this.orderingMicroservice, ["GetItem", "PutItem"], ["ORDER#"]);
     allowIndexQuery(this.orderingMicroservice, GSI1, ["CUSTOMER#"]);
     allowIndexQuery(this.orderingMicroservice, GSI2, ["FULFILLMENT#"]);
+
+    // Storefront microservice: rebuilds the static storefront when it goes out of date.
+    this.storefrontMicroservice = createFunction("storefront", {});
   }
 }
 

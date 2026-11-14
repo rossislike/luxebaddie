@@ -1,7 +1,7 @@
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { header, httpRouter, parseBody } from "../../../src/shared/adapters/api-gateway";
+import { allowedOrigin, header, httpRouter, parseBody } from "../../../src/shared/adapters/api-gateway";
 import { conflict, notFound } from "../../../src/shared/errors";
 
 const request = (overrides: Partial<APIGatewayProxyEvent>): APIGatewayProxyEvent =>
@@ -72,6 +72,16 @@ describe("httpRouter", () => {
 
     const denied = await router(request({ headers: { origin: "https://evil.example" } }));
     expect(denied.headers?.["Access-Control-Allow-Origin"]).toBeUndefined();
+  });
+});
+
+describe("allowedOrigin", () => {
+  it("names the calling storefront only when it is one of ours", () => {
+    vi.stubEnv("ALLOWED_ORIGINS", "https://luxebaddie.com,http://localhost:3000");
+
+    expect(allowedOrigin(request({ headers: { Origin: "http://localhost:3000" } }))).toBe("http://localhost:3000");
+    expect(allowedOrigin(request({ headers: { origin: "https://evil.example" } }))).toBeUndefined();
+    expect(allowedOrigin(request({}))).toBeUndefined();
   });
 });
 

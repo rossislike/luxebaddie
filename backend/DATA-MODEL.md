@@ -104,6 +104,19 @@ GSI2, partition FULFILLMENT#unfulfilled         the work queue, oldest first
 - **Each service can only touch its own items.** IAM allows an action only when the partition key starts with that service's prefix: product `PRODUCT#` (and `CATALOG` in GSI1), basket `BASKET#` plus read-only `PRODUCT#`, ordering `ORDER#` (and `CUSTOMER#` in GSI1, `FULFILLMENT#` in GSI2). The payment service has no table access.
 - **Throughput ceilings.** A single partition handles roughly 1,000 writes per second. Every new order writes to `FULFILLMENT#unfulfilled` in GSI2, so that is the theoretical ceiling for order intake. It is far beyond any plausible volume for this store.
 
+## Change stream
+
+The table's stream is on (`NEW_AND_OLD_IMAGES`): DynamoDB keeps an ordered record of every committed write for 24 hours, with the item as it was before and after. Events that announce a write are published from that record instead of by the code that made the write, so an event and the table can never disagree.
+
+| Feed | Items | Relay | Event |
+| --- | --- | --- | --- |
+| Catalog | `PK` begins with `PRODUCT#` | `src/product/change-relay.ts` | `CatalogChanged` (`productId`, `saved` or `removed`) |
+
+- A feed (`lib/change-feed.ts`) filters the stream by key prefix, so a relay is only ever handed its own service's items. The filter is a delivery rule, not a permission: IAM cannot restrict stream reads by key, which is why each relay is its own Lambda with no other access to the table.
+- A relay reads the product id from the item itself (the old image for a delete), never from the key.
+- Delivery is at-least-once and in order per item. Subscribers must tolerate the same change arriving twice.
+- A change the relay fails on ten times goes to the feed's dead-letter queue, and an alarm fires.
+
 ## Rules for the code
 
 - Key strings are built only in `src/table/*-item.ts`. Repositories call those functions; nothing else knows a key format.
@@ -122,5 +135,5 @@ Likely next changes:
 | Change | Kind | Sketch |
 | --- | --- | --- |
 | Orders by date, for the daily owner's report | Backfill | New index, partition per month (`ORDERS#<yyyy-mm>`), sorted by `paidAt` |
-| `OrderPlaced` events for emails and vendor forwarding | Additive | Enable the table's stream; publish from stream records where `Type = Order` |
+| `OrderPlaced` events for emails and vendor forwarding | Additive | A second change feed (`lib/change-feed.ts`) on the `ORDER#` prefix, with its own relay Lambda in the ordering service |
 | Customer accounts | Additive | `Customer` item at `CUSTOMER#<email>` |

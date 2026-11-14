@@ -50,6 +50,14 @@ describe("starting checkout", () => {
     expect(checkout.started).toEqual([expect.objectContaining({ id: BASKET_ID, subtotalCents: 10_000 })]);
   });
 
+  it("passes on which storefront the shopper should return to", async () => {
+    await service.replaceItems(BASKET_ID, [wigLine]);
+
+    await service.startCheckout(BASKET_ID, "http://localhost:3000");
+
+    expect(checkout.returnTo).toEqual(["http://localhost:3000"]);
+  });
+
   it("refuses an empty basket", async () => {
     await expect(service.startCheckout(BASKET_ID)).rejects.toMatchObject({ kind: "conflict" });
     expect(checkout.started).toEqual([]);

@@ -61,9 +61,16 @@ describe("buildCheckoutSessionParams", () => {
     expect(buildCheckoutSessionParams(basket, { ...config, automaticTax: true }).automatic_tax).toEqual({ enabled: true });
   });
 
-  it("returns the shopper to the storefront", () => {
+  it("returns the shopper to the main storefront", () => {
     expect(params.success_url).toBe("https://shop.example.com/checkout/success?session_id={CHECKOUT_SESSION_ID}");
     expect(params.cancel_url).toBe("https://shop.example.com/bag");
+  });
+
+  it("returns the shopper to the storefront they came from when it is named", () => {
+    const local = buildCheckoutSessionParams(basket, config, "http://localhost:3000");
+
+    expect(local.success_url).toBe("http://localhost:3000/checkout/success?session_id={CHECKOUT_SESSION_ID}");
+    expect(local.cancel_url).toBe("http://localhost:3000/bag");
   });
 
   it("charges the basket's shipping amount", () => {

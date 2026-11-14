@@ -34,12 +34,15 @@ export function inMemoryBaskets(): BasketRepository & { saved: Map<string, Baske
   };
 }
 
-export function recordingCheckout(): CheckoutGateway & { started: PricedBasket[] } {
+export function recordingCheckout(): CheckoutGateway & { started: PricedBasket[]; returnTo: (string | undefined)[] } {
   const started: PricedBasket[] = [];
+  const returnTo: (string | undefined)[] = [];
   return {
     started,
-    startCheckout: async (basket) => {
+    returnTo,
+    startCheckout: async (basket, storefront) => {
       started.push(basket);
+      returnTo.push(storefront);
       return `https://checkout.example/${basket.id}`;
     },
   };

@@ -1,5 +1,5 @@
 import { RemovalPolicy } from "aws-cdk-lib";
-import { AttributeType, BillingMode, ProjectionType, Table } from "aws-cdk-lib/aws-dynamodb";
+import { AttributeType, BillingMode, ProjectionType, StreamViewType, Table } from "aws-cdk-lib/aws-dynamodb";
 import { Construct } from "constructs";
 import { GSI1, GSI2, TTL_ATTRIBUTE } from "../src/table/schema";
 
@@ -26,6 +26,10 @@ export class LbDatabase extends Construct {
       sortKey: { name: "SK", type: AttributeType.STRING },
       billingMode: BillingMode.PAY_PER_REQUEST,
       timeToLiveAttribute: TTL_ATTRIBUTE,
+      // The change stream: an ordered record of every committed write, with the
+      // item before and after. Events that announce a write are published from
+      // it (see lib/change-feed.ts) so they can never disagree with the table.
+      stream: StreamViewType.NEW_AND_OLD_IMAGES,
       removalPolicy: props.retainData ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
       deletionProtection: props.retainData,
       pointInTimeRecoverySpecification: { pointInTimeRecoveryEnabled: props.retainData },

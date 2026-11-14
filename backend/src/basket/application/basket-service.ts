@@ -30,8 +30,11 @@ export function createBasketService({ baskets, catalog, checkout }: BasketPorts)
 
     discardBasket: (basketId: string) => baskets.remove(basketId),
 
-    /** Returns the URL of the hosted checkout page for this basket. */
-    async startCheckout(basketId: string): Promise<string> {
+    /**
+     * Returns the URL of the hosted checkout page for this basket.
+     * `returnTo` is the storefront to send the shopper back to afterwards (see CheckoutGateway).
+     */
+    async startCheckout(basketId: string, returnTo?: string): Promise<string> {
       const basket = await viewBasket(basketId);
       if (basket.removed.length > 0) {
         // Never charge for a bag that differs from what the shopper last saw.
@@ -39,7 +42,7 @@ export function createBasketService({ baskets, catalog, checkout }: BasketPorts)
         throw conflict("Some items in your bag are no longer available", basket);
       }
       if (basket.lines.length === 0) throw conflict("Your bag is empty", basket);
-      return checkout.startCheckout(basket);
+      return checkout.startCheckout(basket, returnTo);
     },
   };
 }

@@ -12,6 +12,10 @@ An online store for wigs, weaves and lashes, built to run with as little manual 
  Shopper's browser
    │  static storefront (Next.js export)             web/
    ▼
+ CloudFront ── HTTPS, security headers, caching ──► private S3 bucket (the built site)
+   │
+   │  the pages call the API from the browser
+   ▼
  API Gateway  ── one REST API, /admin/* routes need IAM-signed requests
    │
    ├─ product  Lambda ──┐                            the catalog
@@ -23,7 +27,12 @@ An online store for wigs, weaves and lashes, built to run with as little manual 
    │                  └──► paid-basket queue (SQS) ─► basket Lambda (empties the paid bag)
    └─ ordering Lambda                                order confirmation + fulfillment queue
 
- CloudWatch: alarms (dead-letter queues, Lambda errors, API 5xx), one dashboard, X-Ray traces
+ Keeping the storefront current:
+   product saved or removed ─► table's change stream ─► change relay Lambda ─► CatalogChanged on the bus
+   CatalogChanged, or a finished deployment ─► rebuild queue (SQS) ─► storefront Lambda ─► CodeBuild
+   CodeBuild: builds the site from the catalog ─► uploads to S3 ─► clears CloudFront's cache
+
+ CloudWatch: alarms (dead-letter queues, Lambda errors, API and storefront 5xx, failed builds), one dashboard, X-Ray traces
 ```
 
 A purchase, step by step:
@@ -36,12 +45,19 @@ A purchase, step by step:
 
 New automations (confirmation emails, forwarding orders to vendors, AI workflows) subscribe to events with their own queue. Nothing upstream changes.
 
+A catalog change, step by step:
+
+1. An admin saves or removes a product through the **product** service. That is the only thing the product service does: it does not publish anything itself.
+2. DynamoDB records the write in the table's change stream. The product service's **change relay** reads it and publishes `CatalogChanged`.
+3. The event lands in the storefront's rebuild queue. The **storefront** service collects what arrives within 30 seconds and starts one build for the lot.
+4. The build reads the catalog from the API, generates every page, uploads the site and clears CloudFront's cache. About two minutes after the save, the change is live.
+
 ## Repository layout
 
 | Path | What it is |
 | --- | --- |
 | `packages/contracts` | The shared language: product, basket, order and event shapes (zod schemas). Used by both sides. |
-| `backend/lib` | AWS infrastructure as code (CDK): database, microservices, API gateway, event bus, queues, monitoring. |
+| `backend/lib` | AWS infrastructure as code (CDK): database, microservices, API gateway, event bus, queues, storefront hosting and build, monitoring. |
 | `backend/src/<service>` | One folder per microservice, each laid out as ports and adapters (below). |
 | `backend/src/table` | The single table's key formats and item mappers. The only place that builds a key. |
 | `backend/DATA-MODEL.md` | The data model: entities, keys, and the request behind every access pattern. |
@@ -69,7 +85,35 @@ Use cases are tested with in-memory fakes, so the business rules run without AWS
 - **One DynamoDB table holds everything** (single-table design): products, baskets and orders, arranged so every read is a single-item lookup or one contiguous range, never a scan. The model is documented in [backend/DATA-MODEL.md](backend/DATA-MODEL.md); read it before touching keys.
 - **Services still own their data.** IAM lets each Lambda touch only items whose key starts with its own prefix. The basket service has read-only access to products for pricing, which avoids a synchronous call to the product service.
 - **Secrets** (Stripe keys) live encrypted in SSM Parameter Store, never in code, environment variables or templates. A pre-commit hook (`.githooks/pre-commit`) refuses commits that contain a Stripe key, and CI scans every commit for leaked keys of any kind.
-- **When a service must both save data and publish an event** (for example a future `OrderPlaced`), publish from the table's DynamoDB Stream rather than making two separate calls, so the two can never disagree.
+- **When a service must both save data and publish an event**, it only saves, and the event is published from the table's change stream (`backend/lib/change-feed.ts`), so the two can never disagree. `CatalogChanged` works this way today; a future `OrderPlaced` should too.
+- **One storefront build at a time.** Two builds running together could finish in the wrong order and leave the older catalog live. The build project refuses a second build; the request waits in the queue and is retried, which also guarantees a build that starts after the last change.
+
+## Storefront hosting
+
+Each stage has its own hosted storefront. Its address is the stack's `StorefrontUrl` output; `dev` is at https://d2dc32zxkhz4om.cloudfront.net until there is a domain.
+
+- **Private bucket, public CDN.** The site's files sit in an S3 bucket nobody can read directly. CloudFront is the only reader (origin access control, with a bucket policy naming this one distribution), so every request gets HTTPS and the security headers.
+- **Published by a build, never by hand.** `backend/lib/storefront-build.ts` defines a CodeBuild project that builds the site and uploads it. It runs when the catalog changes and when a deployment finishes, from the source that was deployed. There is no "upload the site" command to forget.
+- **Clean addresses.** The export is one file per page (`/shop.html`); a small CloudFront Function (`backend/lib/storefront-page-router.js`) maps `/shop` to it. Unknown addresses get the 404 page.
+- **Caching.** Files with a content hash in their name are cached for a year. Pages are revalidated by the browser on every visit and cached by CloudFront until the next publish clears it.
+- **Security headers**, added by CloudFront to every response, including errors:
+
+  | Header | Value | What it does |
+  | --- | --- | --- |
+  | `Strict-Transport-Security` | two years, including subdomains | Browsers refuse plain HTTP after the first visit |
+  | `Content-Security-Policy` | `frame-ancestors 'none'` | The store cannot be framed by another site |
+  | `X-Frame-Options` | `DENY` | The same, for old browsers |
+  | `X-Content-Type-Options` | `nosniff` | Browsers never guess a file's type |
+  | `Referrer-Policy` | `strict-origin-when-cross-origin` | Other sites learn the shopper came from the store, not which page |
+  | `Permissions-Policy` | camera, microphone, location off | Nothing on the site can use them |
+  | `Cross-Origin-Opener-Policy` | `same-origin` | Pages opened from the store get no handle back to it |
+
+- **The rest of the Content-Security-Policy is inside each page.** A static site cannot use per-request nonces, and Next.js puts inline scripts in every page. So the build (`web/scripts/content-security-policy.mjs`) writes a `<meta>` policy into each page listing the hash of exactly the inline scripts that page shipped with. Scripts run only from the site's own files or that list; `'unsafe-inline'` and `'unsafe-eval'` are never allowed for scripts. The browser may connect only to the site and the stage's API. If a third-party script is added later (an ad pixel, analytics), its origin has to be added there.
+- **Logs.** CloudFront access logs go to a second private bucket (30 days in `dev`), without query strings, referrers or cookies: the order confirmation address contains the checkout session id.
+- **What it costs.** With no traffic, close to nothing: there is no fixed monthly fee for CloudFront, S3 or CodeBuild. CodeBuild's free tier covers 100 build minutes a month on this build size and a build takes about a minute ([CodeBuild pricing](https://aws.amazon.com/codebuild/pricing/)). Each publish uses one of CloudFront's 1,000 free cache-clearing paths a month ([CloudFront pricing](https://aws.amazon.com/cloudfront/pricing/pay-as-you-go/)). Beyond that, CloudFront charges for requests and data transferred, and S3 for a few megabytes of storage ([S3 pricing](https://aws.amazon.com/s3/pricing/)).
+- **Not yet in place, by choice:** a custom domain and certificate (waiting on the domain), and a web application firewall. Both are production decisions; see ROADMAP.md.
+
+To rebuild the storefront by hand (for example after a failed build), start the project named in the `StorefrontBuildProject` output from the CodeBuild console. If a build is already running, CodeBuild refuses, which is the intended behavior.
 
 ## Stripe
 
@@ -97,10 +141,10 @@ Prerequisites: Node 22+, pnpm, AWS credentials for the account, and the account 
 pnpm install
 
 # Backend
-pnpm deploy:dev          # deploy the dev stage to AWS
+pnpm deploy:dev          # deploy the dev stage to AWS (backend and storefront hosting; the storefront rebuilds itself afterwards)
 pnpm seed:dev            # load the placeholder catalog
 pnpm test                # unit tests (no AWS needed)
-pnpm test:e2e            # end-to-end tests against the deployed dev stage (wait a minute after a deploy)
+pnpm test:e2e            # end-to-end tests against the deployed dev stage, API and hosted storefront (wait a minute after a deploy; takes a few minutes)
 
 # Look at real data by access pattern (run without a pattern to list them)
 pnpm --filter @luxebaddie/backend db dev catalog wigs
@@ -110,11 +154,13 @@ pnpm --filter @luxebaddie/backend db dev customer someone@example.com
 STRIPE_BASKET_KEY=rk_test_... STRIPE_PAYMENT_KEY=rk_test_... STRIPE_SETUP_KEY=rk_test_... \
   pnpm --filter @luxebaddie/backend stripe:setup:dev
 
-# Storefront
+# Storefront, locally (the hosted one needs none of this)
 cp web/.env.example web/.env.local   # set NEXT_PUBLIC_API_URL to the stack's ApiUrl output
 pnpm dev                             # http://localhost:3000
-pnpm build                           # static site in web/out
+pnpm build                           # static site in web/out, with each page's Content-Security-Policy
 ```
+
+A checkout started from `localhost:3000` returns to `localhost:3000`; one started from the hosted storefront returns there. The API accepts browser calls from those two origins only.
 
 ### Getting a change into `main`
 
@@ -146,4 +192,4 @@ gh api --method PUT repos/rossislike/luxebaddie/rulesets/<id> --input .github/ru
 
 Admin routes (`/admin/*`) accept only requests signed with AWS credentials. They cover the catalog, the fulfillment queue (`/admin/order`), a single order, and one customer's orders by email (`/admin/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. `backend/scripts/lib/aws.ts` has a ready-made signed `fetch`.
 
-Operations: the `LuxeBaddie-dev` CloudWatch dashboard shows traffic, errors and queue health. To receive alarm emails, set `alarmEmail` for the stage in `backend/lib/stage-config.ts`.
+Operations: the `LuxeBaddie-dev` CloudWatch dashboard shows traffic, errors, queue health, storefront requests and storefront builds. A failed storefront build raises an alarm: the site stays up on the previous version, but is missing whatever changed. To receive alarm emails, set `alarmEmail` for the stage in `backend/lib/stage-config.ts`.

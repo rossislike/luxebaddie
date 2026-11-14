@@ -25,6 +25,7 @@ import { secretParameterNames } from "../../lib/stage-config";
 import { createAdminFetch, getStackOutputs, type StackOutputs } from "../../scripts/lib/aws";
 import { createDocumentClient } from "../../src/shared/adapters/aws-clients";
 import { orderKey } from "../../src/table/order-item";
+import { eventually } from "./support";
 
 const STAGE = "dev";
 const run = randomUUID().slice(0, 8);
@@ -60,16 +61,6 @@ const json = (body: unknown): RequestInit => ({
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify(body),
 });
-
-async function eventually<T>(read: () => Promise<T | null>, timeoutMs = 30_000): Promise<T> {
-  const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    const value = await read();
-    if (value !== null) return value;
-    if (Date.now() > deadline) throw new Error("Timed out waiting for the expected state");
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-}
 
 beforeAll(async () => {
   outputs = await getStackOutputs(STAGE);
@@ -141,7 +132,7 @@ describe("catalog", () => {
     }
   });
 
-  it("answers CORS preflight for the storefront origin", async () => {
+  it("answers CORS preflight for a local storefront", async () => {
     const response = await fetch(api("/basket/x"), {
       method: "OPTIONS",
       headers: { Origin: "http://localhost:3000", "Access-Control-Request-Method": "PUT" },

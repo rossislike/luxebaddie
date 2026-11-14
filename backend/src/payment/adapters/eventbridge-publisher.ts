@@ -1,8 +1,9 @@
-import { type EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
+import type { EventBridgeClient } from "@aws-sdk/client-eventbridge";
 import { EVENTS } from "@luxebaddie/contracts";
+import { putEvents } from "../../shared/adapters/eventbridge";
 import type { EventPublisher, PaymentEvent } from "../application/ports";
 
-function toBusEntry(event: PaymentEvent) {
+function toBusEvent(event: PaymentEvent) {
   switch (event.type) {
     case "checkout_completed":
       return { ...EVENTS.checkoutCompleted, detail: event.checkout };
@@ -14,19 +15,9 @@ function toBusEntry(event: PaymentEvent) {
 export function eventBridgePublisher(eventBridge: EventBridgeClient, eventBusName: string): EventPublisher {
   return {
     async publish(event) {
-      const { source, detailType, detail } = toBusEntry(event);
-      const result = await eventBridge.send(
-        new PutEventsCommand({
-          Entries: [
-            { EventBusName: eventBusName, Source: source, DetailType: detailType, Detail: JSON.stringify(detail) },
-          ],
-        }),
-      );
-      // PutEvents reports per-entry failures in a successful response.
-      if (result.FailedEntryCount) {
-        throw new Error(`Failed to publish ${detailType}: ${JSON.stringify(result.Entries)}`);
-      }
-      console.log(`Published ${detailType}`, { checkoutSessionId: detail.checkoutSessionId });
+      const busEvent = toBusEvent(event);
+      await putEvents(eventBridge, eventBusName, [busEvent]);
+      console.log(`Published ${busEvent.detailType}`, { checkoutSessionId: busEvent.detail.checkoutSessionId });
     },
   };
 }

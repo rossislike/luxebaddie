@@ -7,6 +7,8 @@ import { STRIPE_WEBHOOK_IPS } from "./stripe-webhook-ips";
 
 interface LbApiGatewayProps {
   config: StageConfig;
+  /** Browser origins allowed to call the API (CORS): the stage's storefronts. */
+  allowedOrigins: string[];
   productMicroservice: IFunction;
   basketMicroservice: IFunction;
   paymentMicroservice: IFunction;
@@ -35,7 +37,7 @@ export class LbApiGateway extends Construct {
         throttlingBurstLimit: 100,
       },
       defaultCorsPreflightOptions: {
-        allowOrigins: props.config.allowedOrigins,
+        allowOrigins: props.allowedOrigins,
         allowMethods: Cors.ALL_METHODS,
         allowHeaders: ["Content-Type"],
       },

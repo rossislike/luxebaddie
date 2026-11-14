@@ -1,5 +1,7 @@
 import { Duration } from "aws-cdk-lib";
 import type { RestApi } from "aws-cdk-lib/aws-apigateway";
+import type { Distribution } from "aws-cdk-lib/aws-cloudfront";
+import type { IProject } from "aws-cdk-lib/aws-codebuild";
 import { Alarm, ComparisonOperator, Dashboard, GraphWidget, type IMetric, TreatMissingData } from "aws-cdk-lib/aws-cloudwatch";
 import { SnsAction } from "aws-cdk-lib/aws-cloudwatch-actions";
 import type { IFunction } from "aws-cdk-lib/aws-lambda";
@@ -15,6 +17,9 @@ interface LbMonitoringProps {
   functions: Record<string, IFunction>;
   /** Subscriber queues by name, each with its dead-letter queue. */
   queues: Record<string, { queue: IQueue; deadLetterQueue: IQueue }>;
+  /** Change feeds by name: where changes land that could not be announced as events. */
+  changeFeedDeadLetterQueues: Record<string, IQueue>;
+  storefront: { distribution: Distribution; build: IProject };
 }
 
 /** CloudWatch alarms (sent to an SNS topic) and one dashboard for the whole backend. */
@@ -50,6 +55,25 @@ export class LbMonitoring extends Construct {
         deadLetterQueue.metricApproximateNumberOfMessagesVisible({ period, statistic: "Maximum" }),
       );
     }
+    for (const [name, deadLetterQueue] of Object.entries(props.changeFeedDeadLetterQueues)) {
+      alarm(
+        `${name}ChangeFeedDeadLetterAlarm`,
+        `A ${name} change could not be announced as an event. Inspect the change feed's dead-letter queue.`,
+        deadLetterQueue.metricApproximateNumberOfMessagesVisible({ period, statistic: "Maximum" }),
+      );
+    }
+    const { distribution, build } = props.storefront;
+    alarm(
+      "StorefrontBuildFailedAlarm",
+      "A storefront build failed, so the live site may be missing recent catalog changes. See the build's log.",
+      build.metricFailedBuilds({ period, statistic: "Sum" }),
+    );
+    alarm(
+      "StorefrontServerErrorAlarm",
+      "More than 5% of storefront requests failed with a 5xx error.",
+      distribution.metric5xxErrorRate({ period, statistic: "Average" }),
+      5,
+    );
     alarm(
       "ApiServerErrorAlarm",
       "The API returned 5xx errors.",
@@ -97,6 +121,26 @@ export class LbMonitoring extends Construct {
         title: "Lambda duration (p95)",
         left: functions.map(([name, fn]) => fn.metricDuration({ period, statistic: "p95", label: name })),
         width: 8,
+      }),
+    );
+    this.dashboard.addWidgets(
+      new GraphWidget({
+        title: "Storefront requests and errors",
+        left: [distribution.metricRequests({ period, statistic: "Sum" })],
+        right: [
+          distribution.metric4xxErrorRate({ period, statistic: "Average" }),
+          distribution.metric5xxErrorRate({ period, statistic: "Average" }),
+        ],
+        width: 12,
+      }),
+      new GraphWidget({
+        title: "Storefront builds",
+        left: [
+          build.metricSucceededBuilds({ period, statistic: "Sum", label: "succeeded" }),
+          build.metricFailedBuilds({ period, statistic: "Sum", label: "failed" }),
+        ],
+        right: [build.metricDuration({ period, statistic: "Average", label: "duration (s)" })],
+        width: 12,
       }),
     );
     this.dashboard.addWidgets(

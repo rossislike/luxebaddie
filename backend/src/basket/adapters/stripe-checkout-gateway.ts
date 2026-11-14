@@ -5,7 +5,7 @@ import type { CheckoutGateway } from "../application/ports";
 
 export type StripeCheckoutConfig = {
   stage: string;
-  /** Where Stripe sends the shopper back to, e.g. https://luxebaddie.com */
+  /** The stage's main storefront, e.g. https://luxebaddie.com. Shoppers return here unless told otherwise. */
   storefrontUrl: string;
   automaticTax: boolean;
 };
@@ -25,9 +25,9 @@ const TAX_BEHAVIOR = "exclusive";
  */
 export function stripeCheckoutGateway(getStripe: StripeProvider, config: StripeCheckoutConfig): CheckoutGateway {
   return {
-    async startCheckout(basket) {
+    async startCheckout(basket, returnTo) {
       const stripe = await getStripe();
-      const session = await stripe.checkout.sessions.create(buildCheckoutSessionParams(basket, config));
+      const session = await stripe.checkout.sessions.create(buildCheckoutSessionParams(basket, config, returnTo));
       if (!session.url) throw new Error(`Stripe session ${session.id} has no URL`);
       return session.url;
     },
@@ -37,6 +37,7 @@ export function stripeCheckoutGateway(getStripe: StripeProvider, config: StripeC
 export function buildCheckoutSessionParams(
   basket: PricedBasket,
   config: StripeCheckoutConfig,
+  returnTo: string = config.storefrontUrl,
 ): Stripe.Checkout.SessionCreateParams {
   return {
     mode: "payment",
@@ -63,8 +64,8 @@ export function buildCheckoutSessionParams(
     // Tax is only collected in places with an active Stripe Tax registration.
     // Switching this on without one silently collects nothing (see ROADMAP.md).
     automatic_tax: { enabled: config.automaticTax },
-    success_url: `${config.storefrontUrl}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${config.storefrontUrl}/bag`,
+    success_url: `${returnTo}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${returnTo}/bag`,
   };
 }
 

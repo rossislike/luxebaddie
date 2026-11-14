@@ -10,11 +10,11 @@ _Last updated: 2026-11-14_
 
 ## Where we are
 
-**Phase 1 of 6.** The store's engine is built and running on AWS in a `dev` environment, and it has taken its first test payment: on 2026-11-14 a test card was charged $156.95 through Stripe and an order was created automatically about three seconds later. The storefront runs locally against it. Nothing is public yet and no real money can move.
+**Phase 1 of 6.** The store's engine is built and running on AWS in a `dev` environment, and it has taken its first test payment: on 2026-11-14 a test card was charged $156.95 through Stripe and an order was created automatically about three seconds later. The storefront is now online too, at a temporary address: https://d2dc32zxkhz4om.cloudfront.net. It shows the placeholder catalog, runs on Stripe's test mode, and no real money can move. It is reachable by anyone who has the link, but nothing points to it.
 
-**Next up:** put the storefront online with automatic deploys.
+**Next up:** automatic deploys, so merging a change publishes it without anyone running a command.
 
-**Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy.
+**Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
 
 ## Decisions made
 
@@ -45,7 +45,12 @@ The machinery: a site customers can buy from and a backend that records what the
 - [x] `dev` moved to its own Stripe sandbox with one restricted key per service. A test purchase through the real storefront and Stripe Checkout ($19.95, order LB-ADY5PH12N5) confirmed every key has the permissions it needs, with no errors in any service (2026-11-14)
 - [x] Old `sk_test_` key that was pasted into chat rolled in the Stripe Dashboard (2026-11-14)
 - [x] Automatic checks on every change (GitHub Actions): typecheck, lint, unit tests, a CDK build and a scan for leaked keys run on every pull request, and nothing merges to `main` until they pass. Work moves from committing straight to `main` to short-lived branches and pull requests (2026-11-14)
-- [ ] Put the storefront online on AWS (S3 + CloudFront) with security headers, rebuilt automatically when the catalog changes
+- [x] Storefront online on AWS (S3 + CloudFront) at https://d2dc32zxkhz4om.cloudfront.net (2026-11-14):
+  - Served over HTTPS only, from a private bucket that only the CDN can read
+  - Security headers on every page, and each page lists exactly which scripts may run on it, so injected scripts are blocked by the browser
+  - Rebuilds itself when the catalog changes: add, edit or remove a product and the site is up to date a few minutes later, with nobody deploying anything. It also rebuilds after every deployment
+  - A failed rebuild raises an alarm and leaves the previous version of the site up
+  - Checked on the live site: browsing, adding to the bag and reaching Stripe's checkout all work. A full paid test purchase through the hosted site has not been repeated yet
 - [ ] Automatic deploys to `dev` (GitHub Actions + CDK): merging to `main` deploys the backend and the storefront, then runs the end-to-end tests against it. GitHub signs in to AWS with a short-lived role (OIDC), so no AWS keys are stored in GitHub. Each pull request shows what infrastructure it would change. Stripe setup stays a manual, once-per-environment step so Stripe keys never pass through the pipeline
 - [ ] Mobile pass on every page (most ad traffic will be on phones)
 
@@ -77,6 +82,8 @@ Turning the working engine into a store that is ready for real customers.
 - [ ] Order confirmation and shipping notification emails
 - [ ] Fulfillment workflow: see unfulfilled orders, mark as ordered from vendor, add tracking
 - [ ] Production environment: restricted live Stripe keys, real domain, data backups on, alarm emails to you
+- [ ] Point the real domain at the storefront: certificate, DNS, and tell browsers to always use HTTPS for the domain (HSTS preload)
+- [ ] Decide how to shield the storefront from floods and bots before ads start: a web application firewall on the CDN (a monthly fee plus a per-request charge) or one of CloudFront's flat-rate plans (firewall included, no surprise bills from traffic spikes, but fewer logging options on the free tier)
 - [ ] Production deploy pipeline: the same build that passed on `dev` is promoted to production only after you approve it in GitHub, followed by an automatic check that the live store still works. Production gets its own deploy role, so the `dev` pipeline can never touch it
 - [ ] Refunds and disputes: keep orders in step when a payment is refunded or charged back in Stripe
 - [ ] Tell the shopper when a pay-later payment is declined after checkout (the `CheckoutPaymentFailed` event already exists)
