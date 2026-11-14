@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #17110f;
+  --color-cream: #faf6f0;
+  --color-sand: #efe6da;
+  --color-cocoa: #6b5548;
+  --color-blush: #f3dcd4;
+  --color-wine: #6b1d3a;
+  --color-gold: #b8904f;
+
+  --font-display: var(--font-bodoni), "Didot", "Bodoni MT", serif;
+  --font-sans: var(--font-jost), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+::selection {
+  background: var(--color-wine);
+  color: var(--color-cream);
+}
+
+@layer components {
+  /* Underline that draws in on hover. */
+  .link-underline {
+    background: linear-gradient(currentColor, currentColor) 0 100% / 0 1px no-repeat;
+    padding-bottom: 2px;
+    transition: background-size 300ms ease;
+  }
+  .link-underline:hover,
+  .link-underline:focus-visible {
+    background-size: 100% 1px;
+  }
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem 2.25rem;
+    font-size: 0.8125rem;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    transition:
+      background-color 200ms ease,
+      color 200ms ease,
+      opacity 200ms ease;
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  .btn-primary {
+    background: var(--color-ink);
+    color: var(--color-cream);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-wine);
+  }
+  .btn-outline {
+    border: 1px solid currentColor;
+  }
+  .btn-outline:hover:not(:disabled) {
+    background: var(--color-ink);
+    color: var(--color-cream);
+    border-color: var(--color-ink);
+  }
+
+  .eyebrow {
+    font-size: 0.75rem;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--color-gold);
+  }
+}

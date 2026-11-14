@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# storefront build output
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# CDK build output and deployed-stack outputs
+cdk.out/
+cdk-outputs.*.json
+
+# testing
+coverage/
+
+# env files hold per-machine settings and must never hold secrets in git
+.env*
+!.env.example
+
+# misc
+.DS_Store
+*.pem
+npm-debug.log*
+.pnpm-debug.log*

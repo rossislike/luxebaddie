@@ -1,0 +1,10 @@
+{
+  "app": "npx tsx bin/luxebaddy.ts",
+  "watch": {
+    "include": ["bin/**", "lib/**", "src/**"],
+    "exclude": ["node_modules", "cdk.out", "test"]
+  },
+  "context": {
+    "@aws-cdk/core:target-partitions": ["aws"]
+  }
+}

@@ -1,0 +1,86 @@
+import { beforeEach, describe, expect, it } from "vitest";
+import { createOrderService } from "../../../src/ordering/application/order-service";
+import { orderIdForSession } from "../../../src/ordering/domain/order";
+import { inMemoryOrders } from "../fakes";
+import { paidCheckout } from "../fixtures";
+
+const orderId = orderIdForSession(paidCheckout.checkoutSessionId);
+
+let orders: ReturnType<typeof inMemoryOrders>;
+let service: ReturnType<typeof createOrderService>;
+
+beforeEach(() => {
+  orders = inMemoryOrders();
+  service = createOrderService({ orders, now: () => new Date("2026-11-14T12:00:05.000Z") });
+});
+
+describe("recording a paid checkout", () => {
+  it("creates an unfulfilled order", async () => {
+    expect(await service.recordPaidCheckout(paidCheckout)).toEqual({ orderId, outcome: "created" });
+    const queue = await service.listByFulfillmentStatus("unfulfilled", { limit: 10 });
+    expect(queue.items).toEqual([expect.objectContaining({ id: orderId })]);
+  });
+
+  it("changes nothing when the same checkout is delivered again", async () => {
+    await service.recordPaidCheckout(paidCheckout);
+    const original = await service.getOrder(orderId);
+
+    const redelivery = await service.recordPaidCheckout({ ...paidCheckout, email: "changed@example.com" });
+
+    expect(redelivery).toEqual({ orderId, outcome: "already_exists" });
+    expect(await service.getOrder(orderId)).toEqual(original);
+    expect(orders.stored.size).toBe(1);
+  });
+
+  it("fails loudly if a different payment maps to an existing order number", async () => {
+    await service.recordPaidCheckout(paidCheckout);
+    const existing = orders.stored.get(orderId)!;
+    orders.stored.set(orderId, { ...existing, checkoutSessionId: "cs_test_someone_else" });
+
+    await expect(service.recordPaidCheckout(paidCheckout)).rejects.toThrow(/collision/);
+  });
+});
+
+describe("listing orders", () => {
+  const checkoutAt = (sessionId: string, paidAt: string, email = paidCheckout.email) => ({
+    ...paidCheckout,
+    checkoutSessionId: sessionId,
+    paidAt,
+    email,
+  });
+
+  beforeEach(async () => {
+    await service.recordPaidCheckout(checkoutAt("cs_first", "2026-11-01T10:00:00.000Z"));
+    await service.recordPaidCheckout(checkoutAt("cs_second", "2026-11-02T10:00:00.000Z"));
+    await service.recordPaidCheckout(checkoutAt("cs_other", "2026-11-03T10:00:00.000Z", "someone-else@example.com"));
+  });
+
+  it("shows a customer their own orders, newest first, whatever the email's capitalisation", async () => {
+    const page = await service.listForCustomer("BUYER@example.com", { limit: 10 });
+
+    expect(page.items.map((order) => order.checkoutSessionId)).toEqual(["cs_second", "cs_first"]);
+    expect(page.nextCursor).toBeNull();
+  });
+
+  it("pages through a list with the cursor from the previous page", async () => {
+    const first = await service.listByFulfillmentStatus("unfulfilled", { limit: 2 });
+    expect(first.items).toHaveLength(2);
+    expect(first.nextCursor).not.toBeNull();
+
+    const second = await service.listByFulfillmentStatus("unfulfilled", { limit: 2, cursor: first.nextCursor! });
+    expect(second.items).toHaveLength(1);
+    expect(second.nextCursor).toBeNull();
+  });
+});
+
+describe("reading orders", () => {
+  it("finds the confirmation for a checkout session", async () => {
+    await service.recordPaidCheckout(paidCheckout);
+    expect(await service.getConfirmation(paidCheckout.checkoutSessionId)).toMatchObject({ id: orderId });
+  });
+
+  it("reports unknown orders and sessions as not found", async () => {
+    await expect(service.getOrder("LB-NOPE")).rejects.toMatchObject({ kind: "not_found" });
+    await expect(service.getConfirmation("cs_unknown")).rejects.toMatchObject({ kind: "not_found" });
+  });
+});

@@ -1,0 +1,17 @@
+{
+  "name": "luxebaddy",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@10.10.0",
+  "scripts": {
+    "dev": "pnpm --filter @luxebaddy/web dev",
+    "build": "pnpm --filter @luxebaddy/web build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "pnpm --filter @luxebaddy/web lint",
+    "deploy:dev": "pnpm --filter @luxebaddy/backend deploy:dev",
+    "seed:dev": "pnpm --filter @luxebaddy/backend seed:dev",
+    "test:e2e": "pnpm --filter @luxebaddy/backend test:e2e",
+    "prepare": "git config core.hooksPath .githooks"
+  }
+}

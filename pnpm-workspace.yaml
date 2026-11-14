@@ -1,0 +1,11 @@
+packages:
+  - web
+  - backend
+  - packages/*
+
+onlyBuiltDependencies:
+  - esbuild
+
+ignoredBuiltDependencies:
+  - sharp
+  - unrs-resolver
