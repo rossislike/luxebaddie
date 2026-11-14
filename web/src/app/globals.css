@@ -8,6 +8,7 @@
   --color-blush: #f3dcd4;
   --color-wine: #6b1d3a;
   --color-gold: #b8904f;
+  --color-rose-gold: #cdb5a7; /* the logo's line colour, see scripts/brand-assets.mjs */
 
   --font-display: var(--font-bodoni), "Didot", "Bodoni MT", serif;
   --font-sans: var(--font-jost), ui-sans-serif, system-ui, sans-serif;

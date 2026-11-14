@@ -1,4 +1,6 @@
+import Image from "next/image";
 import Link from "next/link";
+import studioSign from "@/brand/studio-sign.jpg";
 import { categories } from "@/catalog/categories";
 import { getFeaturedProducts, getProducts } from "@/catalog/queries";
 import { ProductGrid } from "@/components/product-card";
@@ -58,6 +60,30 @@ export default async function HomePage() {
               </div>
             </Link>
           ))}
+        </div>
+      </section>
+
+      <section className="bg-ink text-cream">
+        <div className="mx-auto grid max-w-7xl items-center gap-10 px-5 py-16 lg:grid-cols-[1.2fr_1fr] lg:gap-16 lg:px-10 lg:py-24">
+          <Image
+            src={studioSign}
+            alt="The LuxeBaddie sign in rose gold on black, on a vanity table beside makeup brushes and serum bottles"
+            sizes="(min-width: 1024px) 55vw, 100vw"
+            className="w-full rounded-sm"
+          />
+          <div>
+            <p className="eyebrow">The house of LuxeBaddie</p>
+            <h2 className="mt-4 font-display text-5xl leading-[1.05] sm:text-6xl">
+              Crown on. <em className="text-rose-gold">Always.</em>
+            </h2>
+            <p className="mt-6 max-w-md text-lg text-cream/70">
+              LuxeBaddie is hair and beauty for the ones who walk in like they own it. Every wig, bundle and lash is
+              chosen to look expensive and feel effortless.
+            </p>
+            <Link href="/shop" className="btn btn-outline mt-10">
+              Shop the collection
+            </Link>
+          </div>
         </div>
       </section>
 

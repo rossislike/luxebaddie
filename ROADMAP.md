@@ -36,6 +36,7 @@ The machinery: a site customers can buy from and a backend that records what the
 - [x] Monitoring: alarms, dashboard, request tracing
 - [x] Storefront: home, shop, category, product, bag and order confirmation pages
 - [x] Placeholder catalog (11 sample products) so everything can be tested
+- [x] Your logo is on the site: the crowned portrait is the header and footer logo, the browser tab icon and the phone home-screen icon. The studio sign image has its own section on the home page, and the gold logo image is the preview shown when a link to the store is shared (2026-11-14)
 - [x] Automated tests: business rules, plus end-to-end tests against the live `dev` backend
 - [x] Connect `dev` to Stripe and complete a full test purchase with a test card (2026-11-14)
 - [x] Stripe integration reviewed against Stripe's own best practices: orders created from verified webhooks only, failed pay-later payments handled, webhook restricted to Stripe's addresses, one least-privilege key per service, commits containing keys are blocked
@@ -93,7 +94,7 @@ The goal is a store that runs with you supervising rather than operating. Each a
 
 ## Phase 5 - Marketing
 
-- [ ] Brand kit: logo, colors, voice (the site's current look is a starting point)
+- [~] Brand kit: logo, colors, voice. Logo is chosen and in use (`images/LuxeBaddie3.jpeg`). Still to do: get the logo from the designer as a vector file (SVG) so it stays sharp at any size, and settle on one emblem, since the gold share image uses a different crown-and-wave mark
 - [ ] Product feed for Meta and TikTok shops and catalog ads
 - [ ] AI content engine: captions, hooks and ad copy variations from product data and your footage
 - [ ] Organic content calendar for TikTok and Instagram Reels (installs, reveals, before/after)
