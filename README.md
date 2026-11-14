@@ -84,7 +84,7 @@ Use cases are tested with in-memory fakes, so the business rules run without AWS
   | `STRIPE_PAYMENT_KEY` | payment service | Checkout Sessions: Read, Products: Read |
   | `STRIPE_SETUP_KEY` | setup script only, never stored | Webhook Endpoints: Write |
 
-  The permission lists were derived from the API calls each service makes and have not yet been exercised with real restricted keys (dev currently runs on one unrestricted test key). If a call returns 403 after switching, add the permission Stripe names in the error.
+  These permission lists were confirmed with a full test purchase on `dev` (2026-11-14). If a new Stripe call later returns 403, add the permission Stripe names in the error to that service's key.
 - **Environments.** Use a dedicated Stripe sandbox per environment rather than the shared test mode. The setup script refuses test keys for `prod`, live keys for anything else, and unrestricted keys for `prod`.
 - **Sales tax is off** until Stripe Tax is fully set up (`stripeAutomaticTax` in `backend/lib/stage-config.ts`). Turning it on without an active tax registration collects nothing and reports no error.
 - **Testing a payment:** card `4242 4242 4242 4242`, any future expiry, any security code.
