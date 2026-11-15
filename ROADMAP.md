@@ -14,9 +14,9 @@ _Last updated: 2026-11-15_
 
 Changes now publish themselves: merging a change puts it live on `dev` and tests it there, with nobody running a command.
 
-The back office is under construction. It is online at its own address, https://d318grcpgtla6f.cloudfront.net, behind a sign-in: an owner account by invitation only, with an authenticator-app code every time. So far it shows a home page with the number of orders waiting; products and orders are still managed by running a script with AWS credentials.
+The back office is under construction. It is online at its own address, https://d318grcpgtla6f.cloudfront.net, behind a sign-in: an owner account by invitation only, with an authenticator-app code every time. Orders can be worked there from payment to delivery. Products are still managed by running a script with AWS credentials.
 
-**Next up:** the back-office screens for working orders and managing the catalog.
+**Next up:** the back-office screens for managing the catalog, then photo upload and the activity log.
 
 **Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
 
@@ -89,8 +89,18 @@ Where you run the store: a private site, behind a sign-in, for managing products
   - Published the same way as the storefront: rebuilt on its own after every deployment, and a failed rebuild raises an alarm and leaves the previous version up
   - It opens on a home page showing how many orders are waiting and how many products are for sale or in draft. The screens for working orders and managing the catalog are the next items
 - [ ] **(you)** Get your back-office account. Tell me which email address to invite, or run `pnpm --filter @luxebaddie/backend owner:invite:dev you@example.com`. You get an email with a temporary password; at the first sign-in you choose your own password and set up an authenticator app (1Password, Google Authenticator, Authy or similar)
-- [ ] Orders screens: the queue of orders to fulfil (oldest first), an order's details (items, shipping address, totals, a link to the payment in Stripe), and search by order number or customer email
-- [ ] Fulfillment actions: mark an order as ordered from the vendor, add the carrier and tracking number, mark it shipped and delivered. The order of steps is enforced, so an order cannot skip a step or go backwards by accident
+- [x] Orders screens (2026-11-15):
+  - Four queues that an order moves through: To order, Ordered from vendor, On its way, Delivered. Oldest first, so nothing gets forgotten at the bottom
+  - An order's page: what was bought, the address laid out as it goes on a parcel, the totals, the customer, and a link that opens the payment in Stripe
+  - One search box: type an order number to open that order, or an email address to see everything that customer has bought
+- [x] Fulfillment actions (2026-11-15):
+  - Mark an order as ordered from the vendor (with the vendor's own order number, if they give one), then as shipped with the carrier and tracking number, then as delivered. Each step is dated
+  - The order of steps is enforced by the store itself, not just the screen: an order cannot skip a step or go backwards, and a refused step says why in plain words
+  - Every step asks for a second click, because none can be undone. A mistyped carrier or tracking number can be corrected while the order is on its way
+  - Tracking numbers for USPS, UPS, FedEx and DHL link to the carrier's tracking page
+  - If two people work the same order, the second is told it changed instead of overwriting the first
+  - Checked on `dev` in a real browser: one order taken through all three steps
+  - Not yet: the customer is not emailed when an order ships. That arrives with the shipping emails in Phase 3
 - [ ] Catalog screens: add and edit a product with its options and prices, keep it as a draft, publish it, set its order on the page, feature it on the home page, remove it (with a confirmation)
 - [ ] Photo upload: add product photos from the back office. They are stored on AWS and served through the CDN, which is where the Phase 3 photography lands
 - [ ] Activity log: every back-office change is recorded with who made it and when

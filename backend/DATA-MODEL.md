@@ -36,7 +36,7 @@ Collected from the API routes, the event consumers, and the near-term roadmap.
 | 11 | Order | Get an order by order number | confirmation page, admin |
 | 12 | Order | List orders in a fulfillment state, oldest first, paged | fulfillment queue |
 | 13 | Order | List one customer's orders by email, newest first, paged | customer support |
-| 14 | Order | Change an order's fulfillment state | fulfillment (planned, not built) |
+| 14 | Order | Move an order one fulfillment step on, or correct its tracking, only if nobody else changed it first | back office |
 
 ## Entity chart
 
@@ -52,6 +52,7 @@ Notes on the values:
 - `<email>` is trimmed and lower-cased in the key. The order keeps the email as typed.
 - `<paidAt>` and `<createdAt>` are ISO-8601 UTC timestamps, which sort correctly as text.
 - An order with no email has no `GSI1` keys, so it appears in no customer's list.
+- An order's fulfillment progress (`fulfillmentStatus`, `vendorOrderReference`, `orderedFromVendorAt`, `shipment`, `shippedAt`, `deliveredAt`) is the only part of it that is ever rewritten. Orders stored before these attributes existed lack them and read as not yet fulfilled; no backfill was needed.
 - Baskets also carry `TTL` (epoch seconds). Every item carries `Type`.
 
 What sits together as a result:
@@ -89,7 +90,7 @@ GSI2, partition FULFILLMENT#unfulfilled         the work queue, oldest first
 | 11 | Get order | Main table | GetItem | `PK = SK = ORDER#<orderId>` |
 | 12 | Fulfillment queue | GSI2 | Query | `GSI2PK = FULFILLMENT#<status>`, ascending, `Limit` + cursor |
 | 13 | Customer's orders | GSI1 | Query | `GSI1PK = CUSTOMER#<email>`, descending, `Limit` + cursor |
-| 14 | Change fulfillment state (planned) | Main table | UpdateItem | Must set `GSI2PK` in the same update (use `fulfillmentIndexKeys`), with condition `attribute_exists(PK)` |
+| 14 | Change fulfillment | Main table | UpdateItem | `SET` the fulfillment attributes and `GSI2PK`/`GSI2SK` together (`fulfillmentAttributes`), so the order changes queue in the same write. Condition `attribute_exists(PK) AND fulfillmentStatus = <the status the change started from>`: of two people working one order, the second is refused instead of overwriting the first |
 
 ## Decisions and their reasons
 
@@ -101,6 +102,7 @@ GSI2, partition FULFILLMENT#unfulfilled         the work queue, oldest first
 - **GSI1 is shared** by two unrelated patterns (the catalog and customers' orders). Each index has its own key attributes; no attribute is used as a key in two indexes.
 - **Every fulfillment state is indexed, including `delivered`.** A leaner design would drop delivered orders from GSI2. It was not worth a special case: the index has no size limit and reads are paged.
 - **Index reads are eventually consistent.** A product or order can take a moment to show up in a list after it is written. Everything that must read its own write immediately (get by id, the confirmation page) uses the base table.
+- **Fulfillment is a conditional update, not a read-then-write.** The service reads the order to decide whether a step is allowed, but what makes it safe is the condition on the write: the stored status must still be the one the decision was based on.
 - **Each service can only touch its own items.** IAM allows an action only when the partition key starts with that service's prefix: product `PRODUCT#` (and `CATALOG` in GSI1), basket `BASKET#` plus read-only `PRODUCT#`, ordering `ORDER#` (and `CUSTOMER#` in GSI1, `FULFILLMENT#` in GSI2). The payment service has no table access.
 - **Throughput ceilings.** A single partition handles roughly 1,000 writes per second. Every new order writes to `FULFILLMENT#unfulfilled` in GSI2, so that is the theoretical ceiling for order intake. It is far beyond any plausible volume for this store.
 

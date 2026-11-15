@@ -86,7 +86,7 @@ describe("LuxeBaddieStack", () => {
       { actions: ["BatchGetItem"], onIndex: null, keys: ["PRODUCT#*"] },
     ]);
     expect(dynamoGrantsOf("ordering")).toEqual([
-      { actions: ["GetItem", "PutItem"], onIndex: null, keys: ["ORDER#*"] },
+      { actions: ["GetItem", "PutItem", "UpdateItem"], onIndex: null, keys: ["ORDER#*"] },
       { actions: ["Query"], onIndex: "GSI1", keys: ["CUSTOMER#*"] },
       { actions: ["Query"], onIndex: "GSI2", keys: ["FULFILLMENT#*"] },
     ]);

@@ -10,5 +10,7 @@ export const BACK_OFFICE_ROUTES = [
   "DELETE /product/{id}",
   "GET /order",
   "GET /order/{id}",
+  "POST /order/{id}/fulfillment-step",
+  "PUT /order/{id}/shipment",
   "GET /customer/{email}/order",
 ] as const;

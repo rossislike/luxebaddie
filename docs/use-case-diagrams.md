@@ -60,6 +60,8 @@ flowchart LR
             queue([View the fulfillment queue])
             oneOrder([Look up an order by number])
             byCustomer([List a customer's orders by email])
+            step([Move an order one fulfillment step on])
+            fixTracking([Correct an order's tracking])
         end
 
         subgraph storefrontCtx["Storefront"]
@@ -81,6 +83,8 @@ flowchart LR
     admin --- queue
     admin --- oneOrder
     admin --- byCustomer
+    admin --- step
+    admin --- fixTracking
 
     checkout --- stripe
     stripe --- notify
@@ -117,6 +121,8 @@ flowchart LR
 | Admin | View the fulfillment queue | Ordering | `GET /admin/order` | By fulfillment status, oldest first, paged |
 | Admin | Look up an order by number | Ordering | `GET /admin/order/{id}` | |
 | Admin | List a customer's orders by email | Ordering | `GET /admin/customer/{email}/order` | Newest first, paged |
+| Admin | Move an order one fulfillment step on | Ordering | `POST /admin/order/{id}/fulfillment-step` | Ordered from the vendor, then shipped (carrier and tracking number required), then delivered. A step out of order is refused with the reason. Never backwards |
+| Admin | Correct an order's tracking | Ordering | `PUT /admin/order/{id}/shipment` | Only while the order is on its way |
 
 Every Admin route above also exists under `/backoffice` in place of `/admin`, for example `GET /backoffice/order`. The `/admin` copy accepts AWS-signed requests and the `/backoffice` copy accepts the signed-in owner's token; behind either, the use case is the same one.
 | Admin, Deployment | Rebuild and publish the site | Storefront | `CatalogChanged`, or a finished deployment | One build at a time. A failed build leaves the previous site up and raises an alarm |
@@ -177,8 +183,7 @@ flowchart LR
         end
 
         subgraph orderingCtx["Ordering"]
-            status([Change an order's fulfillment status])
-            tracking([Add tracking to an order])
+            tracking([Receive tracking from the vendor])
             forward([Forward a paid order to the vendor])
             refund([Keep an order in step with a refund or dispute])
         end
@@ -201,8 +206,6 @@ flowchart LR
     end
 
     admin --- photos
-    admin --- status
-    admin --- tracking
     admin --- report
     forward --- vendor
     vendor --- tracking
@@ -223,6 +226,6 @@ flowchart LR
 How these would fit the model:
 
 - **The back-office screens** are a new client of the existing Admin use cases, not new use cases. Sign-in is built; the screens are not.
-- **Fulfillment** adds the first behavior that changes an `Order` after it is created, so the allowed status transitions become a domain rule in the ordering context.
+- **Vendor forwarding and tracking** automate two steps the Admin takes by hand today: marking an order as ordered from the vendor, and entering its tracking number. They would call the same fulfillment steps.
 - **Notifications, reporting and vendor forwarding** each subscribe to events with their own queue, the way ordering and basket subscribe to `CheckoutCompleted` today. They need an `OrderPlaced` event published from the table's change stream (sketched in `backend/DATA-MODEL.md`). `CheckoutPaymentFailed` already exists and has no subscriber yet.
 - **Customer accounts** introduce a `Customer` aggregate. Today a customer is only the email on an order.

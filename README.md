@@ -145,7 +145,16 @@ The private site the owner runs the store from. It is a second static site, buil
 - **Signing in happens on Cognito's pages**, not on this site (`backoffice/src/auth/owner-session.ts`, using the `oidc-client-ts` library: OAuth 2.0 authorization code flow with PKCE). Cognito only returns a signed-in owner to the back office's own addresses. Tokens are kept in the tab's `sessionStorage`: they are gone when the tab closes.
 - **Rebuilt after every deployment**, not on catalog changes: it has no catalog pages. The same publisher code is deployed a second time for it, with its own queue and build project.
 
-Screens so far: a home page with the number of orders waiting and the size of the catalog. The order and catalog screens are next in ROADMAP.md.
+Screens so far:
+
+| Screen | Address | What it does |
+| --- | --- | --- |
+| Home | `/` | How many orders are waiting, and the size of the catalog |
+| Order queues | `/orders?queue=` | One queue per fulfillment status, oldest first, a page at a time. A search box finds an order by its number or a customer by email |
+| An order | `/order?id=` | What was bought, where it goes, a link to the payment in Stripe, and the one fulfillment step that can be taken next |
+| A customer's orders | `/customer?email=` | Everything bought with one email address, newest first |
+
+Fulfillment goes one way: ordered from the vendor, then shipped (carrier and tracking number), then delivered. The rule lives in the ordering service (`backend/src/ordering/domain/fulfillment.ts`), not in the screens: the API refuses a step out of order and says why, and the screen shows that reason. Each step asks for a second click, because none can be undone. The catalog screens are next in ROADMAP.md.
 
 ## Stripe
 
@@ -293,7 +302,7 @@ The roles only accept this repository under its current name and owner (`backend
 
 ### The back-office routes and who gets in
 
-The back-office functions cover the catalog, the fulfillment queue (`/order`), a single order, and one customer's orders by email (`/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. Each one is served under two prefixes, and API Gateway checks the caller before any Lambda runs:
+The back-office functions cover the catalog, the fulfillment queues (`/order?fulfillmentStatus=`), a single order, moving an order one fulfillment step on (`POST /order/{id}/fulfillment-step`), correcting its tracking (`PUT /order/{id}/shipment`), and one customer's orders by email (`/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. Each one is served under two prefixes, and API Gateway checks the caller before any Lambda runs:
 
 | Prefix | Who gets in | Used by |
 | --- | --- | --- |

@@ -1,5 +1,13 @@
-import type { CheckoutCompleted, FulfillmentStatus, Order, OrderConfirmation } from "@luxebaddie/contracts";
-import { notFound } from "../../shared/errors";
+import type {
+  CheckoutCompleted,
+  FulfillmentStatus,
+  FulfillmentStep,
+  Order,
+  OrderConfirmation,
+  Shipment,
+} from "@luxebaddie/contracts";
+import { conflict, notFound } from "../../shared/errors";
+import { correctShipment, takeStep, whyShipmentCorrectionIsRefused, whyStepIsRefused } from "../domain/fulfillment";
 import { confirmationOf, orderFromCheckout, orderIdForSession } from "../domain/order";
 import type { OrderRepository, PageRequest, SaveOutcome } from "./ports";
 
@@ -27,6 +35,15 @@ export function createOrderService({ orders, now = () => new Date() }: OrderPort
     }
   }
 
+  /** Stores a change to an order's fulfillment that was worked out from `before`. */
+  async function saveFulfillment(before: Order, after: Order): Promise<Order> {
+    const outcome = await orders.saveFulfillment(after, before.fulfillmentStatus);
+    if (outcome === "changed_meanwhile") {
+      throw conflict(`Order ${before.id} was changed by someone else a moment ago. Reload it and try again.`);
+    }
+    return after;
+  }
+
   return {
     /** Idempotent: recording the same paid checkout again changes nothing. */
     async recordPaidCheckout(checkout: CheckoutCompleted): Promise<{ orderId: string; outcome: SaveOutcome }> {
@@ -47,6 +64,22 @@ export function createOrderService({ orders, now = () => new Date() }: OrderPort
       orders.findByFulfillmentStatus(status, page),
 
     listForCustomer: (email: string, page: PageRequest) => orders.findByCustomerEmail(email, page),
+
+    /** Moves an order one step towards the customer. Refused, with the reason, if that is not the order's next step. */
+    async takeFulfillmentStep(orderId: string, step: FulfillmentStep): Promise<Order> {
+      const order = await getOrder(orderId);
+      const refusal = whyStepIsRefused(order, step);
+      if (refusal) throw conflict(refusal);
+      return saveFulfillment(order, takeStep(order, step, now()));
+    },
+
+    /** Replaces the carrier and tracking number of an order that is on its way. */
+    async correctShipment(orderId: string, shipment: Shipment): Promise<Order> {
+      const order = await getOrder(orderId);
+      const refusal = whyShipmentCorrectionIsRefused(order);
+      if (refusal) throw conflict(refusal);
+      return saveFulfillment(order, correctShipment(order, shipment));
+    },
   };
 }
 

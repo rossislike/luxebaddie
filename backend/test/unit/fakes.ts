@@ -71,6 +71,11 @@ export function inMemoryOrders(): OrderRepository & { stored: Map<string, Order>
       return "created";
     },
     findById: async (id) => stored.get(id) ?? null,
+    saveFulfillment: async (order, from) => {
+      if (stored.get(order.id)?.fulfillmentStatus !== from) return "changed_meanwhile";
+      stored.set(order.id, order);
+      return "saved";
+    },
     findByFulfillmentStatus: async (status, page) =>
       pageOf(
         [...stored.values()]

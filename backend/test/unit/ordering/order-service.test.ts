@@ -73,6 +73,76 @@ describe("listing orders", () => {
   });
 });
 
+describe("fulfilling an order", () => {
+  const usps = { carrier: "USPS", trackingNumber: "9400111899223197428490" };
+  const queueOf = async (status: "unfulfilled" | "processing" | "shipped" | "delivered") =>
+    (await service.listByFulfillmentStatus(status, { limit: 10 })).items.map((order) => order.id);
+
+  beforeEach(async () => {
+    await service.recordPaidCheckout(paidCheckout);
+  });
+
+  it("moves the order from one work queue to the next", async () => {
+    await service.takeFulfillmentStep(orderId, { step: "ordered-from-vendor", vendorOrderReference: null });
+
+    expect(await queueOf("unfulfilled")).toEqual([]);
+    expect(await queueOf("processing")).toEqual([orderId]);
+  });
+
+  it("returns and stores the order as it is after the step", async () => {
+    await service.takeFulfillmentStep(orderId, { step: "ordered-from-vendor", vendorOrderReference: "V-1001" });
+    const shipped = await service.takeFulfillmentStep(orderId, { step: "shipped", shipment: usps });
+
+    expect(shipped).toMatchObject({ fulfillmentStatus: "shipped", shipment: usps, shippedAt: "2026-11-14T12:00:05.000Z" });
+    expect(await service.getOrder(orderId)).toEqual(shipped);
+  });
+
+  it("refuses a step out of order and leaves the order as it was", async () => {
+    const before = await service.getOrder(orderId);
+
+    await expect(service.takeFulfillmentStep(orderId, { step: "delivered" })).rejects.toMatchObject({
+      kind: "conflict",
+      message: expect.stringContaining("cannot be marked as delivered"),
+    });
+    expect(await service.getOrder(orderId)).toEqual(before);
+  });
+
+  it("refuses the same step twice", async () => {
+    const orderIt = { step: "ordered-from-vendor", vendorOrderReference: null } as const;
+    await service.takeFulfillmentStep(orderId, orderIt);
+
+    await expect(service.takeFulfillmentStep(orderId, orderIt)).rejects.toMatchObject({ kind: "conflict" });
+  });
+
+  it("tells the second of two people working the same order that it changed", async () => {
+    // Someone else moves the order on between this request reading it and storing its change.
+    const { saveFulfillment } = orders;
+    orders.saveFulfillment = async (order, from) => {
+      orders.stored.set(order.id, { ...orders.stored.get(order.id)!, fulfillmentStatus: "processing" });
+      return saveFulfillment(order, from);
+    };
+
+    await expect(
+      service.takeFulfillmentStep(orderId, { step: "ordered-from-vendor", vendorOrderReference: "MINE" }),
+    ).rejects.toMatchObject({ kind: "conflict", message: expect.stringContaining("changed by someone else") });
+    expect(orders.stored.get(orderId)?.vendorOrderReference).toBeNull();
+  });
+
+  it("corrects the tracking of an order that is on its way, and of no other", async () => {
+    const ups = { carrier: "UPS", trackingNumber: "1Z999AA10123456784" };
+    await expect(service.correctShipment(orderId, ups)).rejects.toMatchObject({ kind: "conflict" });
+
+    await service.takeFulfillmentStep(orderId, { step: "ordered-from-vendor", vendorOrderReference: null });
+    await service.takeFulfillmentStep(orderId, { step: "shipped", shipment: usps });
+
+    expect((await service.correctShipment(orderId, ups)).shipment).toEqual(ups);
+  });
+
+  it("reports an unknown order as not found", async () => {
+    await expect(service.takeFulfillmentStep("LB-NOPE", { step: "delivered" })).rejects.toMatchObject({ kind: "not_found" });
+  });
+});
+
 describe("reading orders", () => {
   it("finds the confirmation for a checkout session", async () => {
     await service.recordPaidCheckout(paidCheckout);

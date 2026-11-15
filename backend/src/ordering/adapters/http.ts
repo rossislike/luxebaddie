@@ -1,7 +1,13 @@
-import { fulfillmentStatusSchema, type Order, type Page } from "@luxebaddie/contracts";
+import {
+  fulfillmentStatusSchema,
+  fulfillmentStepSchema,
+  type Order,
+  type Page,
+  shipmentSchema,
+} from "@luxebaddie/contracts";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { z } from "zod";
-import { backOfficeRoutes, type HttpHandler, httpRouter, pathParam } from "../../shared/adapters/api-gateway";
+import { backOfficeRoutes, type HttpHandler, httpRouter, parseBody, pathParam } from "../../shared/adapters/api-gateway";
 import { invalid } from "../../shared/errors";
 import type { OrderService } from "../application/order-service";
 import type { PageRequest } from "../application/ports";
@@ -17,6 +23,8 @@ const pageSizeSchema = z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default
  * Back office (under /admin and /backoffice, see shared/back-office.ts):
  *   GET /order                            the fulfillment queue: ?fulfillmentStatus= (default unfulfilled), oldest first
  *   GET /order/{id}
+ *   POST /order/{id}/fulfillment-step     move the order one step on: ordered from the vendor, shipped, delivered
+ *   PUT /order/{id}/shipment              correct the carrier or tracking number of an order that is on its way
  *   GET /customer/{email}/order           one customer's orders, newest first
  *
  * Lists are paged: pass ?limit= (default 25, at most 100) and the previous
@@ -37,6 +45,14 @@ export function orderHttpHandler(orders: OrderService): HttpHandler {
 
       "GET /order/{id}": async (event) => ({
         body: { order: await orders.getOrder(pathParam(event, "id")) },
+      }),
+
+      "POST /order/{id}/fulfillment-step": async (event) => ({
+        body: { order: await orders.takeFulfillmentStep(pathParam(event, "id"), parseBody(event, fulfillmentStepSchema)) },
+      }),
+
+      "PUT /order/{id}/shipment": async (event) => ({
+        body: { order: await orders.correctShipment(pathParam(event, "id"), parseBody(event, shipmentSchema)) },
       }),
 
       "GET /customer/{email}/order": async (event) => ({

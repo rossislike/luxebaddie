@@ -4,7 +4,7 @@ import { seedProducts } from "../../../scripts/seed-data";
 import { orderFromCheckout } from "../../../src/ordering/domain/order";
 import { basketKey, basketLinesFromItem, basketToItem } from "../../../src/table/basket-item";
 import { decodeCursor, encodeCursor } from "../../../src/table/cursor";
-import { orderFromItem, orderKey, orderToItem } from "../../../src/table/order-item";
+import { fulfillmentAttributes, orderFromItem, orderKey, orderToItem } from "../../../src/table/order-item";
 import { catalogPrefix, productFromItem, productKey, productToItem } from "../../../src/table/product-item";
 import { BASKET_ID, lashes, paidCheckout, wig } from "../fixtures";
 
@@ -103,6 +103,32 @@ describe("Order items", () => {
 
     expect(anonymous).not.toHaveProperty("GSI1PK");
     expect(anonymous).not.toHaveProperty("GSI1SK");
+  });
+
+  it("read as not yet fulfilled when they were stored before fulfillment was tracked", () => {
+    const { vendorOrderReference, orderedFromVendorAt, shipment, shippedAt, deliveredAt, ...storedBefore } = item;
+
+    expect(orderFromItem(storedBefore)).toEqual(order);
+  });
+
+  it("rewrite their queue keys along with their progress when fulfillment changes", () => {
+    const shipped: Order = {
+      ...order,
+      fulfillmentStatus: "shipped",
+      shipment: { carrier: "USPS", trackingNumber: "9400111899223197428490" },
+      shippedAt: "2026-11-15T09:30:00.000Z",
+    };
+
+    expect(fulfillmentAttributes(shipped)).toEqual({
+      GSI2PK: "FULFILLMENT#shipped",
+      GSI2SK: `ORDER#2026-11-14T12:00:05.000Z#${order.id}`,
+      fulfillmentStatus: "shipped",
+      vendorOrderReference: null,
+      orderedFromVendorAt: null,
+      shipment: shipped.shipment,
+      shippedAt: "2026-11-15T09:30:00.000Z",
+      deliveredAt: null,
+    });
   });
 
   it("join the fulfillment queue for their status, oldest first", () => {

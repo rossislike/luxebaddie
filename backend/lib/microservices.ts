@@ -135,7 +135,7 @@ export class LbMicroservices extends Construct {
 
     // Ordering microservice: turns CheckoutCompleted events into orders.
     this.orderingMicroservice = createFunction("ordering", { TABLE_NAME: table.tableName });
-    allowItems(this.orderingMicroservice, ["GetItem", "PutItem"], ["ORDER#"]);
+    allowItems(this.orderingMicroservice, ["GetItem", "PutItem", "UpdateItem"], ["ORDER#"]);
     allowIndexQuery(this.orderingMicroservice, GSI1, ["CUSTOMER#"]);
     allowIndexQuery(this.orderingMicroservice, GSI2, ["FULFILLMENT#"]);
 

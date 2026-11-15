@@ -361,5 +361,68 @@ describe("checkout to order", () => {
       const forThisCheckout = (await fetchUnfulfilled()).filter((order) => order.checkoutSessionId === checkoutSessionId);
       expect(forThisCheckout).toHaveLength(1);
     });
+
+    describe("and the order is fulfilled", () => {
+      const usps = { carrier: "USPS", trackingNumber: `E2E${run.toUpperCase()}` };
+      const send = (method: string, path: string, body: unknown) =>
+        adminFetch(api(`/admin/order/${confirmation.id}${path}`), { method, ...json(body) });
+      const takeStep = (step: unknown) => send("POST", "/fulfillment-step", step);
+      const orderOf = async (response: Response) => ((await response.json()) as { order: Order }).order;
+      const queued = async (status: string) =>
+        (await adminGet<OrderList>(`/admin/order?fulfillmentStatus=${status}&limit=100`)).orders.some((o) => o.id === confirmation.id);
+
+      it("refuses to skip a step", async () => {
+        const skipped = await takeStep({ step: "shipped", shipment: usps });
+
+        expect(skipped.status).toBe(409);
+        expect(((await skipped.json()) as { message: string }).message).toContain("has not been ordered from the vendor yet");
+        expect((await fetchOrder()).fulfillmentStatus).toBe("unfulfilled");
+      });
+
+      it("refuses a step it does not know, and a shipment without a tracking number", async () => {
+        const unknown = await takeStep({ step: "teleported" });
+        const noTracking = await takeStep({ step: "shipped", shipment: { carrier: "USPS", trackingNumber: " " } });
+
+        expect([unknown.status, noTracking.status]).toEqual([400, 400]);
+      });
+
+      it("moves the order to the next queue when it is ordered from the vendor", async () => {
+        const ordered = await orderOf(await takeStep({ step: "ordered-from-vendor", vendorOrderReference: `V-${run}` }));
+
+        expect(ordered).toMatchObject({ fulfillmentStatus: "processing", vendorOrderReference: `V-${run}` });
+        expect(ordered.orderedFromVendorAt).not.toBeNull();
+        // The queues are an index, which catches up a moment after the write.
+        await eventually(async () => ((await queued("processing")) && !(await queued("unfulfilled")) ? true : null));
+      });
+
+      it("records the carrier and tracking number when it ships", async () => {
+        const shipped = await orderOf(await takeStep({ step: "shipped", shipment: usps }));
+
+        expect(shipped).toMatchObject({ fulfillmentStatus: "shipped", shipment: usps });
+        expect(await fetchOrder()).toEqual(shipped);
+      });
+
+      it("lets the tracking be corrected while the order is on its way", async () => {
+        const ups = { carrier: "UPS", trackingNumber: `1Z${run.toUpperCase()}` };
+        const corrected = await orderOf(await send("PUT", "/shipment", ups));
+
+        expect(corrected).toMatchObject({ fulfillmentStatus: "shipped", shipment: ups });
+      });
+
+      it("ends with the order delivered, and nothing can move it after that", async () => {
+        const delivered = await orderOf(await takeStep({ step: "delivered" }));
+        const backwards = await takeStep({ step: "ordered-from-vendor", vendorOrderReference: null });
+        const lateCorrection = await send("PUT", "/shipment", usps);
+
+        expect(delivered.fulfillmentStatus).toBe("delivered");
+        expect(delivered.deliveredAt).not.toBeNull();
+        expect([backwards.status, lateCorrection.status]).toEqual([409, 409]);
+        expect(await fetchOrder()).toEqual(delivered);
+      });
+
+      it("leaves what was bought exactly as it was", async () => {
+        expect(await fetchOrder()).toMatchObject({ items: checkout.items, totalCents: 10_795, email: customerEmail });
+      });
+    });
   });
 });

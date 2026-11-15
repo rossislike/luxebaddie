@@ -133,6 +133,8 @@ export class LbApiGateway extends Construct {
 
     this.addBackOfficeRoute("GET", "/order", integration); // ?fulfillmentStatus=
     this.addBackOfficeRoute("GET", "/order/{id}", integration);
+    this.addBackOfficeRoute("POST", "/order/{id}/fulfillment-step", integration);
+    this.addBackOfficeRoute("PUT", "/order/{id}/shipment", integration);
     // One customer's orders, for support.
     this.addBackOfficeRoute("GET", "/customer/{email}/order", integration);
   }

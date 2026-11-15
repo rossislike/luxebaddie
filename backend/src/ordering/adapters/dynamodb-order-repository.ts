@@ -5,11 +5,19 @@ import {
   PutCommand,
   QueryCommand,
   type QueryCommandInput,
+  UpdateCommand,
 } from "@aws-sdk/lib-dynamodb";
 import type { Order, Page } from "@luxebaddie/contracts";
 import { invalid } from "../../shared/errors";
 import { decodeCursor, encodeCursor } from "../../table/cursor";
-import { customerPartition, fulfillmentPartition, orderFromItem, orderKey, orderToItem } from "../../table/order-item";
+import {
+  customerPartition,
+  fulfillmentAttributes,
+  fulfillmentPartition,
+  orderFromItem,
+  orderKey,
+  orderToItem,
+} from "../../table/order-item";
 import { GSI1, GSI2 } from "../../table/schema";
 import type { OrderRepository, PageRequest } from "../application/ports";
 
@@ -68,6 +76,33 @@ export function dynamoDbOrderRepository(ddb: DynamoDBDocumentClient, tableName: 
     async findById(id) {
       const { Item } = await ddb.send(new GetCommand({ TableName: tableName, Key: orderKey(id) }));
       return Item ? orderFromItem(Item) : null;
+    },
+
+    async saveFulfillment(order, from) {
+      const changes = Object.entries(fulfillmentAttributes(order));
+      try {
+        await ddb.send(
+          new UpdateCommand({
+            TableName: tableName,
+            Key: orderKey(order.id),
+            UpdateExpression: `SET ${changes.map((_, index) => `#a${index} = :v${index}`).join(", ")}`,
+            // The order must exist and still be where this change started from.
+            ConditionExpression: "attribute_exists(PK) AND #status = :from",
+            ExpressionAttributeNames: {
+              "#status": "fulfillmentStatus",
+              ...Object.fromEntries(changes.map(([name], index) => [`#a${index}`, name])),
+            },
+            ExpressionAttributeValues: {
+              ":from": from,
+              ...Object.fromEntries(changes.map(([, value], index) => [`:v${index}`, value])),
+            },
+          }),
+        );
+        return "saved";
+      } catch (error) {
+        if (error instanceof ConditionalCheckFailedException) return "changed_meanwhile";
+        throw error;
+      }
     },
 
     findByFulfillmentStatus: (status, page) =>
