@@ -26,7 +26,8 @@ An online store for wigs, weaves and lashes, built to run with as little manual 
    │      ▼
    │   EventBridge bus ──► order queue (SQS) ──────► ordering Lambda ── same DynamoDB table
    │                  └──► paid-basket queue (SQS) ─► basket Lambda (empties the paid bag)
-   └─ ordering Lambda                                order confirmation + fulfillment queue
+   ├─ ordering Lambda                                order confirmation + fulfillment queue
+   └─ activity Lambda                                the log of back-office changes, read-only
 
  Owner's browser
    │  static back office (Next.js export)            backoffice/
@@ -101,7 +102,7 @@ Use cases are tested with in-memory fakes, so the business rules run without AWS
 - **Ordering of events** does not matter: every checkout is independent.
 - **Remote calls** all have timeouts and a capped number of retries with backoff and jitter (AWS SDK, Stripe SDK, and the storefront's API client). Only idempotent calls are retried.
 - **No circuit breaker.** The only third-party dependency on a request path is Stripe at checkout. It fails fast (4 second timeout) and Lambda has no shared thread pool to exhaust, so a breaker would add state without adding protection. Revisit if synchronous service-to-service calls are introduced.
-- **One DynamoDB table holds everything** (single-table design): products, baskets and orders, arranged so every read is a single-item lookup or one contiguous range, never a scan. The model is documented in [backend/DATA-MODEL.md](backend/DATA-MODEL.md); read it before touching keys.
+- **One DynamoDB table holds everything** (single-table design): products, baskets, orders and the activity log, arranged so every read is a single-item lookup or one contiguous range, never a scan. The model is documented in [backend/DATA-MODEL.md](backend/DATA-MODEL.md); read it before touching keys.
 - **Services still own their data.** IAM lets each Lambda touch only items whose key starts with its own prefix. The basket service has read-only access to products for pricing, which avoids a synchronous call to the product service.
 - **Secrets** (Stripe keys) live encrypted in SSM Parameter Store, never in code, environment variables, templates or GitHub. A pre-commit hook (`.githooks/pre-commit`) refuses commits that contain a Stripe key, and CI scans every commit for leaked keys of any kind.
 - **When a service must both save data and publish an event**, it only saves, and the event is published from the table's change stream (`backend/lib/change-feed.ts`), so the two can never disagree. `CatalogChanged` works this way today; a future `OrderPlaced` should too.
@@ -154,11 +155,14 @@ Screens so far:
 | Order queues | `/orders?queue=` | One queue per fulfillment status, oldest first, a page at a time. A search box finds an order by its number or a customer by email |
 | An order | `/order?id=` | What was bought, where it goes, a link to the payment in Stripe, and the one fulfillment step that can be taken next |
 | A customer's orders | `/customer?email=` | Everything bought with one email address, newest first |
+| Activity | `/activity` | Every change made from the back office, newest first: who, what, when. Orders and products also show their own history |
 | Catalog | `/catalog` | Every product by category, in the shop's order, drafts included |
 | Add a product | `/product/new` | A new product, saved as a draft until it is put on sale |
 | A product | `/product?id=` | Edit everything about a product, put it on sale or back to draft, feature it, move it, remove it |
 
 Fulfillment goes one way: ordered from the vendor, then shipped (carrier and tracking number), then delivered. The rule lives in the ordering service (`backend/src/ordering/domain/fulfillment.ts`), not in the screens: the API refuses a step out of order and says why, and the screen shows that reason. Each step asks for a second click, because none can be undone.
+
+Every back-office change is recorded in the activity log with who made it and when. "Who" is whoever API Gateway authenticated: the signed-in owner's email from the verified token, or the AWS identity that signed the request. The entry is written in the same DynamoDB transaction as the change itself (`backend/src/shared/adapters/dynamodb-activity.ts`), so there is no change without an entry and no entry for a change that was refused. The services that make changes can only add entries; the activity service can only read them (`backend/DATA-MODEL.md`). On `dev` the log also fills up with the end-to-end tests' changes, under the name of the test role.
 
 Product photos are uploaded from the product form. The browser first makes each photo ready (the right way up, at most 2000 pixels on its longest side, saved as a JPEG, with the camera's hidden details such as location removed), then asks the product service for permission to upload it (`POST /product-photo`) and sends the file straight to the photo bucket. The permission is a signed form that S3 itself enforces: one file, of the agreed kind, at most 5 MB, to an address the service chose. Photos are served to shoppers from the storefront's own address under `/media/` (`backend/lib/product-photos.ts`). A photo is not on the shop until the product is saved with it. Photos that are uploaded and then never saved, or removed from a product later, stay in the bucket: nothing cleans them up yet.
 
@@ -310,7 +314,7 @@ The roles only accept this repository under its current name and owner (`backend
 
 ### The back-office routes and who gets in
 
-The back-office functions cover the catalog (list, read one, add, replace, remove, and permission to upload a product photo), the fulfillment queues (`/order?fulfillmentStatus=`), a single order, moving an order one fulfillment step on (`POST /order/{id}/fulfillment-step`), correcting its tracking (`PUT /order/{id}/shipment`), and one customer's orders by email (`/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. Each one is served under two prefixes, and API Gateway checks the caller before any Lambda runs:
+The back-office functions cover the activity log (`/activity`, and `/activity/{kind}/{id}` for one product or order), the catalog (list, read one, add, replace, remove, and permission to upload a product photo), the fulfillment queues (`/order?fulfillmentStatus=`), a single order, moving an order one fulfillment step on (`POST /order/{id}/fulfillment-step`), correcting its tracking (`PUT /order/{id}/shipment`), and one customer's orders by email (`/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. Each one is served under two prefixes, and API Gateway checks the caller before any Lambda runs:
 
 | Prefix | Who gets in | Used by |
 | --- | --- | --- |

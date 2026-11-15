@@ -70,6 +70,12 @@ flowchart LR
         subgraph storefrontCtx["Storefront"]
             rebuild([Rebuild and publish the site])
         end
+
+        subgraph activityCtx["Activity"]
+            recent([See what was changed, by whom and when])
+            history([See the history of one product or order])
+            record([Record a back-office change])
+        end
     end
 
     shopper --- browse
@@ -91,11 +97,18 @@ flowchart LR
     admin --- byCustomer
     admin --- step
     admin --- fixTracking
+    admin --- recent
+    admin --- history
 
     checkout --- stripe
     stripe --- notify
     deploy --- rebuild
 
+    addProduct -. include .-> record
+    saveProduct -. include .-> record
+    removeProduct -. include .-> record
+    step -. include .-> record
+    fixTracking -. include .-> record
     category -. extend .-> browse
     viewBag -. include .-> priceBag
     changeBag -. include .-> priceBag
@@ -134,6 +147,9 @@ flowchart LR
 | Admin | Correct an order's tracking | Ordering | `PUT /admin/order/{id}/shipment` | Only while the order is on its way |
 
 Every Admin route above also exists under `/backoffice` in place of `/admin`, for example `GET /backoffice/order`. The `/admin` copy accepts AWS-signed requests and the `/backoffice` copy accepts the signed-in owner's token; behind either, the use case is the same one.
+| Admin | See what was changed, by whom and when | Activity | `GET /admin/activity` | Newest first, paged. Read-only: there is no route that writes or erases |
+| Admin | See the history of one product or order | Activity | `GET /admin/activity/{kind}/{id}` | Kept after a product is removed |
+| (every Admin change) | Record a back-office change | Activity | part of the change itself | Stored in the same transaction as the change. A refused change records nothing |
 | Admin, Deployment | Rebuild and publish the site | Storefront | `CatalogChanged`, or a finished deployment | One build at a time. A failed build leaves the previous site up and raises an alarm |
 
 ## The purchase, as one goal

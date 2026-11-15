@@ -16,7 +16,7 @@ Changes now publish themselves: merging a change puts it live on `dev` and tests
 
 The back office is under construction. It is online at its own address, https://d318grcpgtla6f.cloudfront.net, behind a sign-in: an owner account by invitation only, with an authenticator-app code every time. Orders can be worked there from payment to delivery, and the catalog can be managed there: no script is needed any more.
 
-**Next up:** the activity log, which records every back-office change with who made it and when.
+**Next up:** one last Phase 1 check, a full paid test purchase through the hosted storefront address. After that the store platform is complete, and the next work is Phase 2 (yours) and Phase 3.
 
 **Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
 
@@ -118,7 +118,13 @@ Where you run the store: a private site, behind a sign-in, for managing products
   - Only a signed-in owner can upload, only image files (JPEG, PNG, WebP), and only up to 5 MB each. These limits are enforced by the storage itself, not just by the screen
   - A photo reaches the shop when the product is saved with it, a few minutes later like any other product change
   - Not included: the shop's product page shows one photo, the first. A gallery of all of a product's photos belongs with the Phase 3 photography. Photos that are uploaded but never used are not cleaned up; they cost a fraction of a cent
-- [ ] Activity log: every back-office change is recorded with who made it and when
+- [x] Activity log (2026-11-15):
+  - Every change made from the back office is recorded with who made it and when: a product added, saved or removed, and an order ordered from the vendor, shipped, delivered or its tracking corrected
+  - An Activity screen lists everything, newest first. Each order and each product also shows its own history on its page, and a removed product's history is kept
+  - "Who" is your sign-in email, taken from the sign-in itself rather than anything typed. Changes made by a script show the name of the AWS access it used
+  - An entry is saved together with the change it describes, as one step: there cannot be a change without an entry, and a change that was refused leaves none
+  - Entries cannot be edited or removed from the back office. There is no screen or function for it
+  - Not included: sign-ins themselves are not in this log (Amazon keeps those), and neither are changes made directly in Stripe
 
 ## Phase 2 - Business setup
 

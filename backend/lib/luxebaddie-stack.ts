@@ -78,6 +78,7 @@ export class LuxeBaddieStack extends Stack {
       basketMicroservice: microservices.basketMicroservice,
       paymentMicroservice: microservices.paymentMicroservice,
       orderingMicroservice: microservices.orderingMicroservice,
+      activityMicroservice: microservices.activityMicroservice,
     });
 
     // Each subscriber to CheckoutCompleted has its own queue (and dead-letter queue).
@@ -151,6 +152,7 @@ export class LuxeBaddieStack extends Stack {
         basket: microservices.basketMicroservice,
         payment: microservices.paymentMicroservice,
         ordering: microservices.orderingMicroservice,
+        activity: microservices.activityMicroservice,
         productChangeRelay: microservices.productChangeRelay,
         storefront: microservices.storefrontMicroservice,
         backOfficePublisher: microservices.backOfficePublisher,

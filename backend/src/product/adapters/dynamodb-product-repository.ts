@@ -1,6 +1,6 @@
-import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
-import { DeleteCommand, type DynamoDBDocumentClient, GetCommand, PutCommand, paginateQuery } from "@aws-sdk/lib-dynamodb";
+import { type DynamoDBDocumentClient, GetCommand, paginateQuery } from "@aws-sdk/lib-dynamodb";
 import type { Product } from "@luxebaddie/contracts";
+import { writeWithActivity } from "../../shared/adapters/dynamodb-activity";
 import { CATALOG_PARTITION, catalogPrefix, productFromItem, productKey, productToItem } from "../../table/product-item";
 import { GSI1 } from "../../table/schema";
 import type { ProductRepository } from "../application/ports";
@@ -39,24 +39,20 @@ export function dynamoDbProductRepository(ddb: DynamoDBDocumentClient, tableName
     findAll: () => queryCatalog(catalogPrefix()),
 
     /** Create or replace: an admin saving a product is a deliberate overwrite. */
-    async save(product) {
-      await ddb.send(new PutCommand({ TableName: tableName, Item: productToItem(product) }));
+    async save(product, activity) {
+      await writeWithActivity(ddb, tableName, { Put: { TableName: tableName, Item: productToItem(product) } }, activity);
     },
 
-    async saveNew(product) {
-      try {
-        await ddb.send(
-          new PutCommand({ TableName: tableName, Item: productToItem(product), ConditionExpression: "attribute_not_exists(PK)" }),
-        );
-        return "created";
-      } catch (error) {
-        if (error instanceof ConditionalCheckFailedException) return "already_exists";
-        throw error;
-      }
+    async saveNew(product, activity) {
+      const onlyIfFree = { TableName: tableName, Item: productToItem(product), ConditionExpression: "attribute_not_exists(PK)" };
+      const outcome = await writeWithActivity(ddb, tableName, { Put: onlyIfFree }, activity);
+      return outcome === "written" ? "created" : "already_exists";
     },
 
-    async remove(id) {
-      await ddb.send(new DeleteCommand({ TableName: tableName, Key: productKey(id) }));
+    async remove(id, activity) {
+      const onlyIfThere = { TableName: tableName, Key: productKey(id), ConditionExpression: "attribute_exists(PK)" };
+      const outcome = await writeWithActivity(ddb, tableName, { Delete: onlyIfThere }, activity);
+      return outcome === "written" ? "removed" : "not_found";
     },
   };
 }

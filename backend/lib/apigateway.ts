@@ -26,6 +26,7 @@ interface LbApiGatewayProps {
   basketMicroservice: IFunction;
   paymentMicroservice: IFunction;
   orderingMicroservice: IFunction;
+  activityMicroservice: IFunction;
 }
 
 /**
@@ -83,6 +84,7 @@ export class LbApiGateway extends Construct {
     this.addBasketRoutes(new LambdaIntegration(props.basketMicroservice));
     this.addPaymentRoutes(new LambdaIntegration(props.paymentMicroservice));
     this.addOrderRoutes(new LambdaIntegration(props.orderingMicroservice));
+    this.addActivityRoutes(new LambdaIntegration(props.activityMicroservice));
   }
 
   /** Adds one back-office route under both of its doors, e.g. ("GET", "/product") as /admin/product and /backoffice/product. */
@@ -128,6 +130,12 @@ export class LbApiGateway extends Construct {
   private addPaymentRoutes(integration: LambdaIntegration) {
     // POST /payment/webhook - only reachable from Stripe's addresses, then verified by signature inside the Lambda
     this.api.root.addResource("payment").addResource("webhook").addMethod("POST", integration);
+  }
+
+  private addActivityRoutes(integration: LambdaIntegration) {
+    this.addBackOfficeRoute("GET", "/activity", integration);
+    // The changes to one product or one order.
+    this.addBackOfficeRoute("GET", "/activity/{kind}/{id}", integration);
   }
 
   private addOrderRoutes(integration: LambdaIntegration) {

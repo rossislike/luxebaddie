@@ -1,3 +1,4 @@
+export * from "./activity";
 export * from "./basket";
 export * from "./catalog";
 export * from "./events";

@@ -1,4 +1,5 @@
-import type { Order, Product } from "@luxebaddie/contracts";
+import type { Activity, Order, Product } from "@luxebaddie/contracts";
+import { activityFromItem, activityToItem } from "../../../src/table/activity-item";
 import { describe, expect, it } from "vitest";
 import { seedProducts } from "../../../scripts/seed-data";
 import { orderFromCheckout } from "../../../src/ordering/domain/order";
@@ -135,6 +136,46 @@ describe("Order items", () => {
     expect(item.GSI2PK).toBe("FULFILLMENT#unfulfilled");
     expect(item.GSI2SK).toBe(`ORDER#2026-11-14T12:00:05.000Z#${order.id}`);
     expect(orderToItem({ ...order, fulfillmentStatus: "shipped" }).GSI2PK).toBe("FULFILLMENT#shipped");
+  });
+});
+
+describe("Activity items", () => {
+  const entry: Activity = {
+    id: "0b6b1c5e-7f0a-4c58-9a44-5d3f1f0d9c11",
+    at: "2026-11-15T09:30:00.000Z",
+    actor: { kind: "owner", email: "owner@example.com" },
+    action: "order.shipped",
+    subject: { kind: "order", id: "LB-7K3M9Q2XAB", label: "LB-7K3M9Q2XAB" },
+    note: "USPS 9400111899223197428490",
+  };
+  const item = activityToItem(entry);
+
+  it("survive a round trip through the table unchanged", () => {
+    expect(activityFromItem(item)).toEqual(entry);
+  });
+
+  it("all join one log, in the order things happened", () => {
+    const later = activityToItem({ ...entry, id: "a", at: "2026-11-15T09:30:00.001Z" });
+
+    expect(item).toMatchObject({ PK: "ACTIVITY", SK: `ACTIVITY#${entry.at}#${entry.id}`, Type: "Activity" });
+    expect(String(item.SK) < String(later.SK)).toBe(true);
+  });
+
+  it("stay apart when two changes share a millisecond", () => {
+    expect(activityToItem({ ...entry, id: "another" }).SK).not.toBe(item.SK);
+  });
+
+  it("also join the history of the product or order they are about", () => {
+    const aboutProduct = activityToItem({ ...entry, action: "product.saved", subject: { kind: "product", id: "body-wave-wig", label: "Body Wave Wig" } });
+
+    expect(item.GSI1PK).toBe("ACTIVITY#ORDER#LB-7K3M9Q2XAB");
+    expect(item.GSI1SK).toBe(item.SK);
+    expect(aboutProduct.GSI1PK).toBe("ACTIVITY#PRODUCT#body-wave-wig");
+  });
+
+  it("cannot be mistaken for a customer's orders, which share the index", () => {
+    expect(String(item.GSI1PK).startsWith("CUSTOMER#")).toBe(false);
+    expect(String(item.GSI1SK).startsWith("ORDER#")).toBe(false);
   });
 });
 

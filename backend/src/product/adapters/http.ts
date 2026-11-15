@@ -1,5 +1,5 @@
 import { categorySlugSchema, photoUploadRequestSchema, productSchema } from "@luxebaddie/contracts";
-import { backOfficeRoutes, type HttpHandler, httpRouter, parseBody, pathParam } from "../../shared/adapters/api-gateway";
+import { actorOf, backOfficeRoutes, type HttpHandler, httpRouter, parseBody, pathParam } from "../../shared/adapters/api-gateway";
 import { invalid } from "../../shared/errors";
 import type { CatalogService } from "../application/catalog-service";
 
@@ -33,7 +33,7 @@ export function productHttpHandler(catalog: CatalogService): HttpHandler {
 
       "POST /product": async (event) => {
         const product = parseBody(event, productSchema);
-        await catalog.addProduct(product);
+        await catalog.addProduct(product, actorOf(event));
         return { statusCode: 201, body: { product } };
       },
 
@@ -44,12 +44,12 @@ export function productHttpHandler(catalog: CatalogService): HttpHandler {
       "PUT /product/{id}": async (event) => {
         const product = parseBody(event, productSchema);
         if (product.id !== pathParam(event, "id")) throw invalid("Product id in the body must match the URL");
-        await catalog.saveProduct(product);
+        await catalog.saveProduct(product, actorOf(event));
         return { body: { product } };
       },
 
       "DELETE /product/{id}": async (event) => {
-        await catalog.removeProduct(pathParam(event, "id"));
+        await catalog.removeProduct(pathParam(event, "id"), actorOf(event));
         return { statusCode: 204, body: null };
       },
 

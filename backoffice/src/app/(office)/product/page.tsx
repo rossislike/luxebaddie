@@ -7,6 +7,7 @@ import { Suspense, useCallback, useState } from "react";
 import { getProduct, removeProduct, saveProduct } from "@/catalog/api";
 import { draftOf } from "@/catalog/product-draft";
 import { ProductForm } from "@/catalog/product-form";
+import { History } from "@/activity/history";
 import { ConfirmButton } from "@/components/confirm-button";
 import { LoadState } from "@/components/load-state";
 import { messageOf } from "@/lib/api";
@@ -38,6 +39,8 @@ function ProductById() {
 function EditProduct({ product }: { product: Product }) {
   const router = useRouter();
   const [draft] = useState(() => draftOf(product));
+  // Counts saves, so the history below is read again after each one.
+  const [savedCount, setSavedCount] = useState(0);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState<string | null>(null);
 
@@ -58,7 +61,10 @@ function EditProduct({ product }: { product: Product }) {
       <h1 className="mt-2 mb-8 font-display text-4xl" data-testid="product-name">
         {product.name}
       </h1>
-      <ProductForm initial={draft} isNew={false} saveLabel="Save" onSave={async (changed) => void (await saveProduct(changed))}>
+      <ProductForm initial={draft} isNew={false} saveLabel="Save" onSave={async (changed) => {
+          await saveProduct(changed);
+          setSavedCount((count) => count + 1);
+        }}>
         <ConfirmButton className="btn btn-danger" confirmLabel="Click again: remove for good" disabled={removing} onConfirm={() => void remove()}>
           Remove product
         </ConfirmButton>
@@ -72,6 +78,9 @@ function EditProduct({ product }: { product: Product }) {
         Removing a product takes its page off the shop for good. Orders already placed keep their own copy of what was bought. To stop selling it
         for a while instead, save it as a draft.
       </p>
+      <div className="mt-10">
+        <History key={savedCount} kind="product" id={product.id} />
+      </div>
     </>
   );
 }

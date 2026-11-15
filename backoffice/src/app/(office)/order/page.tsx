@@ -4,6 +4,7 @@ import type { Order } from "@luxebaddie/contracts";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useState } from "react";
+import { History } from "@/activity/history";
 import { LoadState } from "@/components/load-state";
 import { useLoaded } from "@/lib/use-loaded";
 import { getOrder } from "@/orders/api";
@@ -51,6 +52,8 @@ function LoadedOrder({ loaded }: { loaded: Order }) {
       <div className="mt-8 space-y-6">
         <FulfillmentPanel order={order} onChanged={setOrder} />
         <OrderDetails order={order} />
+        {/* Keyed by status, so the history is read again after each fulfillment step. */}
+        <History key={`${order.fulfillmentStatus}-${order.shipment?.trackingNumber}`} kind="order" id={order.id} />
       </div>
     </>
   );

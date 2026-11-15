@@ -28,6 +28,7 @@ flowchart LR
         payment["<b>Payment</b><br/>backend/src/payment<br/><i>No data of its own</i>"]
         ordering["<b>Ordering</b><br/>backend/src/ordering<br/><i>Aggregate: Order</i>"]
         storefront["<b>Storefront</b><br/>backend/src/storefront<br/><i>No data of its own</i>"]
+        activity["<b>Activity</b><br/>backend/src/activity<br/><i>Aggregate: Activity</i>"]
     end
 
     basket -- "reads products to price a bag<br/>(conformist, read-only)" --> catalog
@@ -37,6 +38,8 @@ flowchart LR
     payment -. "CheckoutCompleted" .-> basket
     catalog -. "CatalogChanged" .-> storefront
     storefront -- "reads the catalog<br/>to build the pages" --> catalog
+    catalog -- "adds the entry for<br/>each product change" --> activity
+    ordering -- "adds the entry for<br/>each fulfillment change" --> activity
 ```
 
 Solid arrows are direct dependencies: the arrow points at the context being depended on. Dotted arrows are domain events, pointing from publisher to subscriber. Publishers never know who is listening.
@@ -48,6 +51,7 @@ Solid arrows are direct dependencies: the arrow points at the context being depe
 | Payment | Turns what Stripe says into business events | Anti-corruption layer in front of Stripe. Publishes `CheckoutCompleted` and `CheckoutPaymentFailed` |
 | Ordering | The record of what was sold, and the fulfillment queue | Downstream of payment through events only |
 | Storefront | Keeps the published site in step with the catalog | Downstream of the catalog through events only |
+| Activity | The log of back-office changes: who changed which product or order, and when | Written to by the catalog and ordering contexts, each adding the entry for its own change in the same transaction as the change. Read by the back office. It depends on neither |
 
 ## How the DDD terms map to this code
 

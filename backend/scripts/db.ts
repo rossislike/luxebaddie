@@ -7,7 +7,8 @@
  *
  * Run without a pattern to list them. See DATA-MODEL.md for the model.
  */
-import { categorySlugSchema, fulfillmentStatusSchema } from "@luxebaddie/contracts";
+import { activitySubjectKindSchema, categorySlugSchema, fulfillmentStatusSchema } from "@luxebaddie/contracts";
+import { dynamoDbActivityLog } from "../src/activity/adapters/dynamodb-activity-log";
 import { dynamoDbBasketRepository } from "../src/basket/adapters/dynamodb-basket-repository";
 import { dynamoDbOrderRepository } from "../src/ordering/adapters/dynamodb-order-repository";
 import { dynamoDbProductRepository } from "../src/product/adapters/dynamodb-product-repository";
@@ -24,6 +25,7 @@ const ddb = createDocumentClient();
 const products = dynamoDbProductRepository(ddb, TableName);
 const baskets = dynamoDbBasketRepository(ddb, TableName);
 const orders = dynamoDbOrderRepository(ddb, TableName);
+const activity = dynamoDbActivityLog(ddb, TableName);
 
 const required = (what: string): string => {
   if (!argument) throw new Error(`This pattern needs ${what}.`);
@@ -46,6 +48,14 @@ const patterns: Record<string, { describe: string; run: () => Promise<unknown> }
   customer: {
     describe: "<email>       a customer's orders, newest first",
     run: () => orders.findByCustomerEmail(required("an email"), FIRST_PAGE),
+  },
+  activity: { describe: "              every back-office change, newest first", run: () => activity.findRecent(FIRST_PAGE) },
+  history: {
+    describe: "<kind>:<id>   the changes to one product or order, e.g. order:LB-7K3M9Q2XAB",
+    run: () => {
+      const [kind, ...id] = required("a kind and an id, like product:body-wave-wig").split(":");
+      return activity.findForSubject(activitySubjectKindSchema.parse(kind), id.join(":"), FIRST_PAGE);
+    },
   },
 };
 

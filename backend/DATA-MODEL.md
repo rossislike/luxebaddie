@@ -15,7 +15,7 @@ Order   1 --- N OrderLine        lines are stored inside the order
 Customer 1 --- N Order           a customer is identified by email; there is no Customer item yet
 ```
 
-Three item types are stored: `Product`, `Basket`, `Order`. The "many" sides above are kept inside their parent because each is small and capped (100 variants, 30 basket lines, and an order's lines come from a basket) and is never read without its parent.
+Four item types are stored: `Product`, `Basket`, `Order` and `Activity` (an entry in the log of back-office changes, which stands on its own: it describes a product or an order but is not part of one). The "many" sides above are kept inside their parent because each is small and capped (100 variants, 30 basket lines, and an order's lines come from a basket) and is never read without its parent.
 
 ## Access patterns
 
@@ -38,6 +38,9 @@ Collected from the API routes, the event consumers, and the near-term roadmap.
 | 12 | Order | List orders in a fulfillment state, oldest first, paged | fulfillment queue |
 | 13 | Order | List one customer's orders by email, newest first, paged | customer support |
 | 14 | Order | Move an order one fulfillment step on, or correct its tracking, only if nobody else changed it first | back office |
+| 15 | Activity | Record a back-office change if, and only if, the change itself is stored | every back-office write |
+| 16 | Activity | List every back-office change, newest first, paged | back office |
+| 17 | Activity | List the changes to one product or one order, newest first, paged | back office |
 
 ## Entity chart
 
@@ -46,6 +49,7 @@ Collected from the API routes, the event consumers, and the near-term roadmap.
 | Product | `PRODUCT#<id>` | `PRODUCT#<id>` | `CATALOG` | `PRODUCT#<status>#<category>#<position>#<id>` | | |
 | Basket | `BASKET#<basketId>` | `BASKET#<basketId>` | | | | |
 | Order | `ORDER#<orderId>` | `ORDER#<orderId>` | `CUSTOMER#<email>` | `ORDER#<paidAt>#<orderId>` | `FULFILLMENT#<status>` | `ORDER#<createdAt>#<orderId>` |
+| Activity | `ACTIVITY` | `ACTIVITY#<at>#<id>` | `ACTIVITY#<SUBJECT KIND>#<subjectId>` | `ACTIVITY#<at>#<id>` | | |
 
 Notes on the values:
 
@@ -54,6 +58,7 @@ Notes on the values:
 - `<paidAt>` and `<createdAt>` are ISO-8601 UTC timestamps, which sort correctly as text.
 - An order with no email has no `GSI1` keys, so it appears in no customer's list.
 - An order's fulfillment progress (`fulfillmentStatus`, `vendorOrderReference`, `orderedFromVendorAt`, `shipment`, `shippedAt`, `deliveredAt`) is the only part of it that is ever rewritten. Orders stored before these attributes existed lack them and read as not yet fulfilled; no backfill was needed.
+- `<at>` is the ISO-8601 UTC time of the change and `<id>` a random id, so two changes in the same millisecond stay apart. `<SUBJECT KIND>` is `PRODUCT` or `ORDER`.
 - Baskets also carry `TTL` (epoch seconds). Every item carries `Type`.
 
 What sits together as a result:
@@ -72,6 +77,14 @@ GSI1, partition CUSTOMER#bea@example.com        one customer's orders, by date
 
 GSI2, partition FULFILLMENT#unfulfilled         the work queue, oldest first
   ORDER#2026-11-14T12:00:05.000Z#LB-...
+
+Main table, partition ACTIVITY                  the whole activity log, in the order things happened
+  ACTIVITY#2026-11-15T09:30:00.000Z#0b6b...     owner@... added product body-wave-wig
+  ACTIVITY#2026-11-15T09:41:12.512Z#7c1e...     owner@... shipped order LB-...
+
+GSI1, partition ACTIVITY#ORDER#LB-...           one order's history
+  ACTIVITY#2026-11-15T09:35:02.100Z#52aa...     ordered from vendor
+  ACTIVITY#2026-11-15T09:41:12.512Z#7c1e...     shipped
 ```
 
 ## How each access pattern is served
@@ -93,6 +106,9 @@ GSI2, partition FULFILLMENT#unfulfilled         the work queue, oldest first
 | 12 | Fulfillment queue | GSI2 | Query | `GSI2PK = FULFILLMENT#<status>`, ascending, `Limit` + cursor |
 | 13 | Customer's orders | GSI1 | Query | `GSI1PK = CUSTOMER#<email>`, descending, `Limit` + cursor |
 | 14 | Change fulfillment | Main table | UpdateItem | `SET` the fulfillment attributes and `GSI2PK`/`GSI2SK` together (`fulfillmentAttributes`), so the order changes queue in the same write. Condition `attribute_exists(PK) AND fulfillmentStatus = <the status the change started from>`: of two people working one order, the second is refused instead of overwriting the first |
+| 15 | Record a change | Main table | TransactWriteItems | The change (the Put, Update or Delete of patterns 5, 5a and 14) and a Put of the `Activity` item, in one transaction. If the change's condition fails, neither is written. The entry's own condition `attribute_not_exists(PK)` means one is never written over another |
+| 16 | Whole log | Main table | Query | `PK = ACTIVITY`, descending, `Limit` + cursor |
+| 17 | One subject's history | GSI1 | Query | `GSI1PK = ACTIVITY#<SUBJECT KIND>#<subjectId>`, descending, `Limit` + cursor |
 
 ## Decisions and their reasons
 
@@ -105,7 +121,11 @@ GSI2, partition FULFILLMENT#unfulfilled         the work queue, oldest first
 - **Every fulfillment state is indexed, including `delivered`.** A leaner design would drop delivered orders from GSI2. It was not worth a special case: the index has no size limit and reads are paged.
 - **Index reads are eventually consistent.** A product or order can take a moment to show up in a list after it is written. Everything that must read its own write immediately (get by id, the confirmation page) uses the base table.
 - **Fulfillment is a conditional update, not a read-then-write.** The service reads the order to decide whether a step is allowed, but what makes it safe is the condition on the write: the stored status must still be the one the decision was based on.
-- **Each service can only touch its own items.** IAM allows an action only when the partition key starts with that service's prefix: product `PRODUCT#` (and `CATALOG` in GSI1), basket `BASKET#` plus read-only `PRODUCT#`, ordering `ORDER#` (and `CUSTOMER#` in GSI1, `FULFILLMENT#` in GSI2). The payment service has no table access.
+- **The activity log is written in the same transaction as the change it records**, never before or after it. A separate write could fail on its own and leave a change with no entry, or an entry for a change that was refused. The change stream could not do this job: it knows what was written, not who asked for it.
+- **The whole log is one partition** (`ACTIVITY`), like the catalog. Entries are made by people clicking in the back office, a handful a day; a partition takes about a thousand writes a second, and without a local secondary index it has no size limit. Reading "the latest" is one end of the collection, however long the log gets. If automations ever log at order volume, split the partition by month.
+- **The log is the one place two services write.** Product and ordering each add their own entries; IAM lets them add (`PutItem` on `ACTIVITY`) and nothing else, so no service that writes the log can read, change or delete it. Only the activity service can read it, and it cannot write anything. Entries have no expiry.
+- **GSI1 now serves three patterns**: the catalog, a customer's orders and a subject's history. Each uses its own partition key prefix, so they never meet.
+- **Each service can only touch its own items.** IAM allows an action only when the partition key starts with that service's prefix: product `PRODUCT#` (and `CATALOG` in GSI1), basket `BASKET#` plus read-only `PRODUCT#`, ordering `ORDER#` (and `CUSTOMER#` in GSI1, `FULFILLMENT#` in GSI2), activity `ACTIVITY` read-only. The payment service has no table access.
 - **Throughput ceilings.** A single partition handles roughly 1,000 writes per second. Every new order writes to `FULFILLMENT#unfulfilled` in GSI2, so that is the theoretical ceiling for order intake. It is far beyond any plausible volume for this store.
 
 ## Change stream

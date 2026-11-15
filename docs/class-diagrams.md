@@ -67,9 +67,10 @@ classDiagram
         +getProductForSale(id) Product
         +listAllProducts() Product[]
         +getProduct(id) Product
-        +addProduct(product) void
-        +saveProduct(product) void
-        +removeProduct(id) void
+        +addProduct(product, actor) void
+        +saveProduct(product, actor) void
+        +removeProduct(id, actor) void
+        +startPhotoUpload(contentType) PhotoUpload
     }
 
     class ProductRepository {
@@ -77,9 +78,9 @@ classDiagram
         +findById(id) Product
         +findForSale(category) Product[]
         +findAll() Product[]
-        +save(product) void
-        +saveNew(product) created or already exists
-        +remove(id) void
+        +save(product, activity) void
+        +saveNew(product, activity) created or already exists
+        +remove(id, activity) removed or not found
     }
 
     class CatalogEventPublisher {
@@ -392,15 +393,15 @@ classDiagram
         +getOrder(id) Order
         +listByFulfillmentStatus(status, page) Page
         +listForCustomer(email, page) Page
-        +takeFulfillmentStep(id, step) Order
-        +correctShipment(id, shipment) Order
+        +takeFulfillmentStep(id, step, actor) Order
+        +correctShipment(id, shipment, actor) Order
     }
 
     class OrderRepository {
         <<Repository>>
         +saveIfNew(order) SaveOutcome
         +findById(id) Order
-        +saveFulfillment(order, from) FulfillmentSaveOutcome
+        +saveFulfillment(order, from, activity) FulfillmentSaveOutcome
         +findByFulfillmentStatus(status, page) Page
         +findByCustomerEmail(email, page) Page
     }
@@ -482,6 +483,80 @@ classDiagram
 Notes:
 
 - **No aggregate here either.** The published site is derived entirely from the catalog, so this context holds one rule and no data: an older build must never finish after a newer one.
+
+## Activity
+
+Source: `packages/contracts/src/activity.ts`, `backend/src/shared/activity.ts`, `backend/src/activity`.
+
+```mermaid
+classDiagram
+    direction LR
+
+    class Activity {
+        <<Aggregate Root>>
+        +string id
+        +DateTime at
+        +ActivityAction action
+        +string note
+    }
+
+    class Actor {
+        <<Value Object>>
+        owner (email)
+        automation (identity)
+    }
+
+    class ActivitySubject {
+        <<Value Object>>
+        +kind: product or order
+        +string id
+        +string label
+    }
+
+    class ActivityAction {
+        <<enumeration>>
+        product.added
+        product.saved
+        product.removed
+        order.ordered-from-vendor
+        order.shipped
+        order.delivered
+        order.shipment-corrected
+    }
+
+    class ActivityFactory {
+        <<Factory>>
+        +activityFor(change, at) Activity
+    }
+
+    class ActivityService {
+        <<Application Service>>
+        +listRecent(page) Page
+        +listForSubject(kind, id, page) Page
+    }
+
+    class ActivityLog {
+        <<Repository>>
+        +findRecent(page) Page
+        +findForSubject(kind, id, page) Page
+    }
+
+    Activity "1" *-- "1" Actor : actor
+    Activity "1" *-- "1" ActivitySubject : subject
+    Activity --> ActivityAction
+    ActivityFactory ..> Activity : creates
+    ActivityService ..> ActivityLog : uses
+    ActivityLog ..> Activity : reads, never writes
+
+    note for Activity "Invariants:<br/>- written in the same transaction as the<br/>  change it describes, or not at all<br/>- never edited, never removed<br/>- the actor is who API Gateway authenticated,<br/>  never what the caller claims"
+    note for ActivitySubject "The label is the product's name or the<br/>order's number at the time, so an entry still<br/>reads sensibly after a product is removed."
+```
+
+Notes:
+
+- **Who writes it is not in this diagram, on purpose.** `CatalogService` and `OrderService` each build the entry for their own change with `activityFor` and pass it to their own repository alongside the change (`save(product, activity)`, `saveFulfillment(order, from, activity)`). The repository stores both in one transaction (`backend/src/shared/adapters/dynamodb-activity.ts`).
+- **The activity service only reads.** It has no use case that writes, its repository has no method that writes, and its Lambda has no permission to.
+- **A refused change leaves no entry**: a product whose address is taken, a fulfillment step out of order, an order someone else changed first.
 
 ## Domain events
 

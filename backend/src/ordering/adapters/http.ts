@@ -5,17 +5,17 @@ import {
   type Page,
   shipmentSchema,
 } from "@luxebaddie/contracts";
-import type { APIGatewayProxyEvent } from "aws-lambda";
-import { z } from "zod";
-import { backOfficeRoutes, type HttpHandler, httpRouter, parseBody, pathParam } from "../../shared/adapters/api-gateway";
+import {
+  actorOf,
+  backOfficeRoutes,
+  type HttpHandler,
+  httpRouter,
+  parseBody,
+  pathParam,
+} from "../../shared/adapters/api-gateway";
+import { pageRequest } from "../../shared/adapters/paging";
 import { invalid } from "../../shared/errors";
 import type { OrderService } from "../application/order-service";
-import type { PageRequest } from "../application/ports";
-
-const DEFAULT_PAGE_SIZE = 25;
-const MAX_PAGE_SIZE = 100;
-
-const pageSizeSchema = z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE);
 
 /**
  * Public (order confirmation page):
@@ -48,11 +48,13 @@ export function orderHttpHandler(orders: OrderService): HttpHandler {
       }),
 
       "POST /order/{id}/fulfillment-step": async (event) => ({
-        body: { order: await orders.takeFulfillmentStep(pathParam(event, "id"), parseBody(event, fulfillmentStepSchema)) },
+        body: {
+          order: await orders.takeFulfillmentStep(pathParam(event, "id"), parseBody(event, fulfillmentStepSchema), actorOf(event)),
+        },
       }),
 
       "PUT /order/{id}/shipment": async (event) => ({
-        body: { order: await orders.correctShipment(pathParam(event, "id"), parseBody(event, shipmentSchema)) },
+        body: { order: await orders.correctShipment(pathParam(event, "id"), parseBody(event, shipmentSchema), actorOf(event)) },
       }),
 
       "GET /customer/{email}/order": async (event) => ({
@@ -60,12 +62,6 @@ export function orderHttpHandler(orders: OrderService): HttpHandler {
       }),
     }),
   });
-}
-
-function pageRequest(event: APIGatewayProxyEvent): PageRequest {
-  const limit = pageSizeSchema.safeParse(event.queryStringParameters?.limit);
-  if (!limit.success) throw invalid(`limit must be a whole number from 1 to ${MAX_PAGE_SIZE}`);
-  return { limit: limit.data, cursor: event.queryStringParameters?.cursor };
 }
 
 const toListResponse = (page: Page<Order>) => ({ orders: page.items, nextCursor: page.nextCursor });

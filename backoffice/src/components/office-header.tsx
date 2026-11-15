@@ -9,6 +9,7 @@ const sections = [
   { href: "/", label: "Home" },
   { href: "/orders", label: "Orders", alsoCovers: ["/order", "/customer"] },
   { href: "/catalog", label: "Catalog", alsoCovers: ["/product", "/product/new"] },
+  { href: "/activity", label: "Activity" },
 ];
 
 export function OfficeHeader() {

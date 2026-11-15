@@ -13,10 +13,10 @@ export function OrderTable({ list, emptyMessage, showStatus = false }: { list: O
 
   return (
     <>
-      {list.orders.length === 0 && !list.error && <p className="text-cocoa" data-testid="no-orders">{emptyMessage}</p>}
-      {list.orders.length > 0 && (
+      {list.items.length === 0 && !list.error && <p className="text-cocoa" data-testid="no-orders">{emptyMessage}</p>}
+      {list.items.length > 0 && (
         <ul className="panel divide-y divide-ink/10" data-testid="order-list">
-          {list.orders.map((order) => (
+          {list.items.map((order) => (
             <li key={order.id}>
               <Link href={orderPage(order.id)} className="grid gap-x-6 gap-y-1 px-5 py-4 hover:bg-sand/50 sm:grid-cols-[9rem_1fr_auto]">
                 <span className="font-medium" data-testid="order-number">{order.id}</span>

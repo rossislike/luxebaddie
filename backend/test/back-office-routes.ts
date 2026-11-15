@@ -16,4 +16,6 @@ export const BACK_OFFICE_ROUTES = [
   "POST /order/{id}/fulfillment-step",
   "PUT /order/{id}/shipment",
   "GET /customer/{email}/order",
+  "GET /activity",
+  "GET /activity/{kind}/{id}",
 ] as const;

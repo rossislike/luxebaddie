@@ -440,6 +440,23 @@ describe("checkout to order", () => {
         expect(await fetchOrder()).toEqual(delivered);
       });
 
+      it("has every step in the order's history, newest first, with what was typed in", async () => {
+        type Entry = { action: string; note: string | null; actor: { kind: string } };
+        const history = await eventually(async () => {
+          const { activity } = await adminGet<{ activity: Entry[] }>(`/admin/activity/order/${confirmation.id}`);
+          return activity.length === 4 ? activity : null;
+        });
+
+        expect(history.map((entry) => [entry.action, entry.note])).toEqual([
+          ["order.delivered", null],
+          ["order.shipment-corrected", `UPS 1Z${run.toUpperCase()}`],
+          ["order.shipped", `USPS E2E${run.toUpperCase()}`],
+          ["order.ordered-from-vendor", `Vendor order V-${run}`],
+        ]);
+        // The refused steps above (a skipped step, a step backwards) left no entry.
+        expect(history.every((entry) => entry.actor.kind === "automation")).toBe(true);
+      });
+
       it("leaves what was bought exactly as it was", async () => {
         expect(await fetchOrder()).toMatchObject({ items: checkout.items, totalCents: 10_795, email: customerEmail });
       });

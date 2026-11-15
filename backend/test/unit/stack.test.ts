@@ -77,9 +77,13 @@ describe("LuxeBaddieStack", () => {
           keys: statement.Condition?.["ForAllValues:StringLike"]?.["dynamodb:LeadingKeys"],
         }));
 
+    // Each service that makes back-office changes may add to the activity log, and do nothing else with it.
+    const addToTheLog = { actions: ["PutItem"], onIndex: null, keys: ["ACTIVITY*"] };
+
     expect(dynamoGrantsOf("product")).toEqual([
       { actions: ["GetItem", "PutItem", "DeleteItem"], onIndex: null, keys: ["PRODUCT#*"] },
       { actions: ["Query"], onIndex: "GSI1", keys: ["CATALOG*"] },
+      addToTheLog,
     ]);
     expect(dynamoGrantsOf("basket")).toEqual([
       { actions: ["GetItem", "PutItem", "DeleteItem"], onIndex: null, keys: ["BASKET#*"] },
@@ -89,12 +93,20 @@ describe("LuxeBaddieStack", () => {
       { actions: ["GetItem", "PutItem", "UpdateItem"], onIndex: null, keys: ["ORDER#*"] },
       { actions: ["Query"], onIndex: "GSI1", keys: ["CUSTOMER#*"] },
       { actions: ["Query"], onIndex: "GSI2", keys: ["FULFILLMENT#*"] },
+      addToTheLog,
     ]);
+    // The service that reads the log cannot write to it, or to anything else.
+    expect(dynamoGrantsOf("activity")).toEqual([
+      { actions: ["Query"], onIndex: null, keys: ["ACTIVITY*"] },
+      { actions: ["Query"], onIndex: "GSI1", keys: ["ACTIVITY#*"] },
+    ]);
+    expect(dynamoGrantsOf("basket").flatMap((grant) => grant.keys)).not.toContain("ACTIVITY*");
     expect(dynamoGrantsOf("payment")).toEqual([]);
   });
 
   it("creates one Lambda per microservice, plus the product service's change relay and the back office's publisher", () => {
     expect(Object.keys(serviceFunctions()).map((id) => id.replace(/LambdaFunction.*/, "")).sort()).toEqual([
+      "Microservicesactivity",
       "MicroservicesbackOfficePublisher",
       "Microservicesbasket",
       "Microservicesordering",
