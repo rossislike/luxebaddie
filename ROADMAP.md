@@ -14,7 +14,9 @@ _Last updated: 2026-11-15_
 
 Changes now publish themselves: merging a change puts it live on `dev` and tests it there, with nobody running a command.
 
-**Next up:** a mobile pass on every page, since most ad traffic will be on phones.
+The store has no back office yet. Products and orders can be managed, but only by running a script with AWS credentials: there is no sign-in and no screen to click through.
+
+**Next up:** a mobile pass on every page, since most ad traffic will be on phones. Then the back office, starting with owner sign-in, so the real catalog can be loaded and orders worked without a script.
 
 **Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
 
@@ -31,7 +33,7 @@ Changes now publish themselves: merging a change puts it live on `dev` and tests
 
 ## Phase 1 - Store platform
 
-The machinery: a site customers can buy from and a backend that records what they bought.
+The machinery: a site customers can buy from, a backend that records what they bought, and a back office to run it from.
 
 - [x] Backend on AWS (`dev`): product, basket, payment and ordering microservices
 - [x] Event-driven order pipeline: payment confirmed -> event -> order created, with retries and dead-letter queues so no paid order is lost or duplicated
@@ -63,6 +65,25 @@ The machinery: a site customers can buy from and a backend that records what the
   - If a deploy fails, AWS puts the previous version back. If the tests fail afterwards, nothing is undone automatically: the run shows red and the fix is another change
   - Good to know: anything merged to `main` can change anything in this AWS account, which is how the deploy tool works by default. The rule that every change needs a passing pull request is the guard. This is one more reason to give production its own AWS account (see Phase 2)
 - [ ] Mobile pass on every page (most ad traffic will be on phones)
+- [ ] Repeat a full paid test purchase through the hosted storefront address. Browsing, the bag and reaching Stripe's checkout are verified there; paying is not
+
+### Back office
+
+Where you run the store: a private site, behind a sign-in, for managing products and working orders. None of it waits on a business decision, so it can be built now.
+
+- [x] The back-office functions exist behind the scenes: list, add, replace and remove products, see the queue of unfulfilled orders, look up an order by number, and list a customer's orders by email. They can only be reached by script, with AWS credentials
+- [ ] Owner sign-in, using Amazon Cognito (AWS's sign-in service) rather than anything home-made:
+  - One invited account. There is no public sign-up page, so nobody can register themselves
+  - A second step at every sign-in (authenticator app or passkey, not SMS codes)
+  - Sessions expire, and you can sign out everywhere if a device is lost
+  - The back-office functions accept the signed-in owner. The signed requests that scripts and the automated tests use today keep working
+  - Tested: a visitor who is not signed in is refused by every back-office function and never sees a back-office page
+- [ ] Back-office site at its own address, separate from the shop. Not linked from the shop and hidden from search engines, with the same security headers as the storefront
+- [ ] Orders screens: the queue of orders to fulfil (oldest first), an order's details (items, shipping address, totals, a link to the payment in Stripe), and search by order number or customer email
+- [ ] Fulfillment actions: mark an order as ordered from the vendor, add the carrier and tracking number, mark it shipped and delivered. The order of steps is enforced, so an order cannot skip a step or go backwards by accident
+- [ ] Catalog screens: add and edit a product with its options and prices, keep it as a draft, publish it, set its order on the page, feature it on the home page, remove it (with a confirmation)
+- [ ] Photo upload: add product photos from the back office. They are stored on AWS and served through the CDN, which is where the Phase 3 photography lands
+- [ ] Activity log: every back-office change is recorded with who made it and when
 
 ## Phase 2 - Business setup
 
@@ -76,9 +97,13 @@ Things only the business owner can decide or sign. These can run in parallel wit
 - [ ] **(you)** Finish Stripe activation for live payments (business details, bank account). Turn on Afterpay and Klarna in Stripe's payment method settings: pay-later matters at wig prices, and no code change is needed
 - [ ] **(you)** Set the public business name and branding in Stripe to LuxeBaddie. The checkout page currently shows "Rumothy LLC" to shoppers
 - [ ] **(you)** Secure the Stripe Dashboard login with a passkey or authenticator app rather than SMS codes
+- [ ] **(you)** Business email addresses on the domain (for example `support@` and `orders@`), once the domain is registered. Order emails are sent from them, and vendors and customers reply to them
 - [ ] **(you)** Decide store policies: shipping times, returns and exchanges (worn or opened hair and lashes are normally final sale for hygiene), order cancellation
+- [ ] **(you)** Decide where you ship. The checkout accepts US addresses only today
 - [ ] **(you)** Sales tax: confirm with a tax advisor where you must collect. Then in Stripe Tax set the head office address, choose the product tax code for hair goods from Stripe's list, and add a registration for each place you are registered. Only after that do we switch tax collection on; without a registration Stripe collects nothing and gives no warning
+- [ ] **(you)** Resale certificate (seller's permit): ask the tax advisor in the same conversation. Vendors commonly ask for one before selling to you at wholesale without charging you sales tax
 - [ ] **(you)** Business bank account and bookkeeping for the LLC, if not already set up
+- [ ] **(you)** Ask an insurance agent about product liability cover. Lashes and adhesives touch skin and eyes, and a dropshipper is still the seller of record
 - [ ] Decide whether production runs in this AWS account or a dedicated one for the business. A dedicated account is the cleaner choice: it is the only way to guarantee the `dev` pipeline cannot touch production
 
 ## Phase 3 - Launch readiness
@@ -89,17 +114,25 @@ Turning the working engine into a store that is ready for real customers.
 - [ ] Product photography and video (samples from Phase 2), hosted on a CDN
 - [ ] Final shipping rates and free-shipping threshold (currently placeholders: $7.95 flat, free over $150)
 - [ ] Policy pages: shipping, returns, privacy, terms. Contact page and FAQ
+- [ ] Email sending set up on the domain so messages reach the inbox instead of spam (a verified sending domain with SPF, DKIM and DMARC). Comes before any customer email
 - [ ] Order confirmation and shipping notification emails
-- [ ] Fulfillment workflow: see unfulfilled orders, mark as ordered from vendor, add tracking
 - [ ] Production environment: restricted live Stripe keys, real domain, data backups on, alarm emails to you
+  - Its own back-office sign-in, with a separate owner account from `dev`
+  - A spending alert, so an unexpected AWS bill is flagged the day it starts rather than at month end
+  - A dedicated encryption key for the live Stripe keys, and an alarm if anything unexpected reads them
+- [ ] A plain-language guide for each alarm: what it means, what to check, and how to replay an order or a site rebuild that failed
+- [ ] See the problems shoppers hit in their browser (page errors, slow pages on phones). Today's monitoring sees the servers and whether pages are delivered, not what happens once a page is open on someone's phone
 - [ ] Point the real domain at the storefront: certificate, DNS, and tell browsers to always use HTTPS for the domain (HSTS preload)
 - [ ] Decide how to shield the storefront from floods and bots before ads start: a web application firewall on the CDN (a monthly fee plus a per-request charge) or one of CloudFront's flat-rate plans (firewall included, no surprise bills from traffic spikes, but fewer logging options on the free tier)
 - [ ] Production deploy pipeline: the same build that passed on `dev` is promoted to production only after you approve it in GitHub, followed by an automatic check that the live store still works. Production gets its own deploy role, with narrower rights than the `dev` one, so the `dev` pipeline can never touch it
 - [ ] Refunds and disputes: keep orders in step when a payment is refunded or charged back in Stripe
 - [ ] Tell the shopper when a pay-later payment is declined after checkout (the `CheckoutPaymentFailed` event already exists)
+- [ ] Fraud screening: review Stripe's fraud rules (Radar) before launch. Hair is a common target for stolen cards, and a dropshipped order cannot be pulled back once the vendor ships it
 - [ ] Walk through Stripe's go-live checklist
+- [ ] Accessibility pass: every page usable by keyboard and screen reader, with readable contrast. It is the right thing to do, and online stores are a frequent target of accessibility complaints
 - [ ] SEO basics: titles, descriptions, sitemap, social share images
 - [ ] Analytics and ad pixels (Meta, TikTok) with server-side conversion tracking
+- [ ] Cookie and tracking consent to go with the pixels: a notice, a way to opt out, and a privacy policy that matches what the site actually collects
 - [ ] Launch checklist: a real purchase and refund with a live card, on a phone
 
 ## Phase 4 - Automation
@@ -108,6 +141,8 @@ The goal is a store that runs with you supervising rather than operating. Each a
 
 - [ ] Order forwarding: a paid order is sent to the vendor automatically
 - [ ] Tracking: vendor tracking numbers flow back and the customer is notified
+- [ ] "Where is my order" page: a shopper enters their order number and email and sees the status and tracking, without writing to support
+- [ ] Stock sync: when the vendor runs out of a length or color it shows as unavailable on the site automatically. Today it has to be switched off by hand
 - [ ] AI customer support: answers order status, shipping, product and care questions by email and chat, escalating to you when unsure
 - [ ] AI catalog assistant: drafts product descriptions and SEO copy for new products for your approval
 - [ ] Daily owner's report: sales, orders needing attention, ad spend and anything that broke
@@ -122,7 +157,8 @@ The goal is a store that runs with you supervising rather than operating. Each a
 - [ ] Organic content calendar for TikTok and Instagram Reels (installs, reveals, before/after)
 - [ ] Paid ad tests on Meta and TikTok with small daily budgets; scale what converts
 - [ ] Creator seeding: send product to micro-influencers for content and reviews
-- [ ] Email and SMS list: signup offer, welcome series, launches
+- [ ] Email and SMS list: signup offer, welcome series, launches. Sign-up records consent and every message carries an unsubscribe, which the law requires for both
+- [ ] Discount codes for launch and for creators. The checkout already accepts them; the codes are created in Stripe, and each creator gets their own so sales can be traced back
 
 ## Phase 6 - Grow
 
@@ -130,6 +166,9 @@ The goal is a store that runs with you supervising rather than operating. Each a
 - [ ] Bundle deals (bundles + closure, wig + care kit)
 - [ ] Stock bestsellers for faster delivery and better margin
 - [ ] Customer accounts and order history
+- [ ] Staff accounts for the back office, with limited permissions (for example, someone who can work orders but not change prices)
+- [ ] Search and filters (length, texture, lace type) once the catalog is big enough to need them
+- [ ] Shipping outside the US
 - [ ] Expand the line: hair care, beauty products, accessories
 
 ## Open questions
@@ -137,3 +176,5 @@ The goal is a store that runs with you supervising rather than operating. Each a
 - Which vendor(s)? Everything in Phase 3 depends on it.
 - Is the brand name clear to use (trademark search)?
 - Production AWS account: this one or a dedicated account?
+- Will anyone besides you need back-office access at launch? If so, staff accounts move up from Phase 6.
+- US only at launch, or other countries too?

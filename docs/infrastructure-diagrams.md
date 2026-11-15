@@ -398,7 +398,11 @@ These are planned in [ROADMAP.md](../ROADMAP.md) and are deliberately absent fro
 | A production deploy that waits for approval in GitHub, with its own deploy role | Diagram 5: a `prod` environment and role next to the `dev` ones |
 | A custom domain with its certificate and DNS | Diagram 1: in front of CloudFront |
 | A web application firewall, or a CloudFront flat-rate plan | Diagram 1: in front of CloudFront |
-| A dedicated KMS key for the `prod` Stripe parameters, and an alarm on unexpected reads of them | Diagram 3 (recommended, not yet on the roadmap) |
+| A dedicated KMS key for the `prod` Stripe parameters, and an alarm on unexpected reads of them | Diagram 3 |
+| Owner sign-in for the back office: a Cognito user pool with no self sign-up and a required second factor | Diagram 1: a second way into the `/admin/*` routes, next to IAM-signed requests |
+| A back-office site at its own address | Diagram 1: its own private bucket and CloudFront distribution, separate from the storefront's |
+| Product photo storage, written from the back office and served through the CDN | Diagram 1: a bucket behind CloudFront |
+| A spending alert for `prod` | Diagram 4: next to the alarm topic |
 | Order confirmation and shipping emails, vendor order forwarding | Diagram 2: new subscriber queues on the event bus |
 
 ## Keeping this current
