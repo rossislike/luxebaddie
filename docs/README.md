@@ -9,6 +9,8 @@ These diagrams describe LuxeBaddie the way domain-driven design (DDD) looks at i
 | [activity-diagrams.md](activity-diagrams.md) | Activity diagrams | What decisions does each bounded context make, and where does each path lead? |
 | [use-case-diagrams.md](use-case-diagrams.md) | Use case diagrams | What can each actor do with the system, today and on the roadmap? |
 
+One more document sits beside the domain model: [infrastructure-diagrams.md](infrastructure-diagrams.md) shows the deployed AWS pieces (API Gateway, Lambda, DynamoDB, EventBridge, SQS, Parameter Store, CloudFront), how they connect, and where the system meets Stripe and GitHub.
+
 The diagrams are written in [Mermaid](https://mermaid.js.org), so GitHub and most editors render them straight from the Markdown and they can be reviewed in a pull request like any other change.
 
 ## Bounded contexts
@@ -79,5 +81,6 @@ A diagram that disagrees with the code is worse than no diagram. When a change t
 | `backend/src/<service>/application/*-service.ts` | Activity and sequence diagrams |
 | A route in `backend/src/<service>/adapters/http.ts` | Use case diagrams |
 | Events, queues or subscriptions in `backend/lib` | Sequence diagrams and the context map above |
+| Any construct in `backend/lib`, `backend/scripts/stripe-setup.ts` or `.github/workflows` | Infrastructure diagrams |
 
 Related reading: the system overview in the [README](../README.md), and the storage model in [backend/DATA-MODEL.md](../backend/DATA-MODEL.md). The diagrams here stop at the repository interface on purpose: how an aggregate is stored is that document's job.

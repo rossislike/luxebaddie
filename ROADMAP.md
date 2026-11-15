@@ -52,6 +52,7 @@ The machinery: a site customers can buy from and a backend that records what the
   - A failed rebuild raises an alarm and leaves the previous version of the site up
   - Checked on the live site: browsing, adding to the bag and reaching Stripe's checkout all work. A full paid test purchase through the hosted site has not been repeated yet
 - [x] Diagrams of how the store works (`docs/`): what the business concepts are, who can do what, and how a purchase and a catalog change flow through the system, step by step. Drawn from the code, so they show what is built, with planned features marked as planned (2026-11-14)
+- [x] Infrastructure diagrams (`docs/infrastructure-diagrams.md`): every AWS piece the store runs on, how they connect, where the Stripe keys are kept and who can read them, what happens when something fails, and how changes get deployed. Pieces that are planned but not built are listed separately (2026-11-14)
 - [ ] Automatic deploys to `dev` (GitHub Actions + CDK): merging to `main` deploys the backend and the storefront, then runs the end-to-end tests against it. GitHub signs in to AWS with a short-lived role (OIDC), so no AWS keys are stored in GitHub. Each pull request shows what infrastructure it would change. Stripe setup stays a manual, once-per-environment step so Stripe keys never pass through the pipeline
 - [ ] Mobile pass on every page (most ad traffic will be on phones)
 

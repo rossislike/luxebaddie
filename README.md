@@ -62,7 +62,7 @@ A catalog change, step by step:
 | `backend/src/table` | The single table's key formats and item mappers. The only place that builds a key. |
 | `backend/DATA-MODEL.md` | The data model: entities, keys, and the request behind every access pattern. |
 | `backend/scripts` | Seed the catalog, connect a stage to Stripe. |
-| `docs` | The domain model in UML: class, sequence, activity and use case diagrams for each bounded context. Start at [docs/README.md](docs/README.md). |
+| `docs` | The domain model in UML: class, sequence, activity and use case diagrams for each bounded context. Start at [docs/README.md](docs/README.md). The deployed AWS pieces and their connections to Stripe are in [docs/infrastructure-diagrams.md](docs/infrastructure-diagrams.md). |
 | `web` | The storefront. |
 
 Each microservice keeps business rules away from AWS and Stripe details:
