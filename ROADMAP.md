@@ -10,15 +10,17 @@ _Last updated: 2026-11-15_
 
 ## Where we are
 
-**Phase 1 of 6.** The store's engine is built and running on AWS in a `dev` environment, and it has taken its first test payment: on 2026-11-14 a test card was charged $156.95 through Stripe and an order was created automatically about three seconds later. The storefront is now online too, at a temporary address: https://d2dc32zxkhz4om.cloudfront.net. It shows the placeholder catalog, runs on Stripe's test mode, and no real money can move. It is reachable by anyone who has the link, but nothing points to it.
+**Phase 1 is complete (2026-11-15). Phases 2 and 3 are next.** The store's engine is built and running on AWS in a `dev` environment, and it takes test payments end to end: on 2026-11-15 a test card was charged $21.95 through the hosted storefront and Stripe, and the order was created automatically a few seconds later. The storefront is now online too, at a temporary address: https://d2dc32zxkhz4om.cloudfront.net. It shows the placeholder catalog, runs on Stripe's test mode, and no real money can move. It is reachable by anyone who has the link, but nothing points to it.
 
 Changes now publish themselves: merging a change puts it live on `dev` and tests it there, with nobody running a command.
 
-The back office is under construction. It is online at its own address, https://d318grcpgtla6f.cloudfront.net, behind a sign-in: an owner account by invitation only, with an authenticator-app code every time. Orders can be worked there from payment to delivery, and the catalog can be managed there: no script is needed any more.
+The back office is built. It is online at its own address, https://d318grcpgtla6f.cloudfront.net, behind a sign-in: an owner account by invitation only, with an authenticator-app code every time. Orders can be worked there from payment to delivery, the catalog and its photos can be managed there, and every change is recorded with who made it and when. No script is needed any more.
 
-**Next up:** one last Phase 1 check, a full paid test purchase through the hosted storefront address. After that the store platform is complete, and the next work is Phase 2 (yours) and Phase 3.
+Everything in the store is still placeholder or test: the 11 sample products, Stripe's test mode, the temporary addresses. Nothing here can take real money yet. That is what Phases 2 and 3 change.
 
-**Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
+**Next up:** Phase 3 work that does not wait on a business decision: the policy, contact and FAQ pages as drafts for you to edit, the accessibility pass, SEO basics, and the plain-language guide to the alarms. The rest of Phase 3 needs the vendor and the domain first.
+
+**Waiting on you:** your back-office account (one command, below), and the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
 
 ## Decisions made
 
@@ -67,7 +69,7 @@ The machinery: a site customers can buy from, a backend that records what they b
 - [x] Mobile pass on every page (most ad traffic will be on phones) (2026-11-15):
   - Checked in a real browser at four phone sizes, from the smallest (320 wide) to the largest (430 wide), plus a tablet and a desktop: home, shop, the three category pages, product pages, the bag (empty and full), the order confirmation page and the "page not found" page
   - Improved: nothing scrolls sideways any more, the top bar fits on one row and takes up less of the screen, product names in the grid no longer break one word per line, the price and "Add to bag" sit higher on product pages, and every link and button is easy to hit with a thumb. Desktop looks the same as before
-- [ ] Repeat a full paid test purchase through the hosted storefront address. Browsing, the bag and reaching Stripe's checkout are verified there; paying is not
+- [x] A full paid test purchase through the hosted storefront address, on a phone-sized screen (2026-11-15). A pair of lashes was added to the bag on the live site and paid for on Stripe's page with a test card: $21.95, which is $14 plus $7.95 shipping. The shop's confirmation page showed order LB-TTZPDGWDSB a few seconds later, the bag was emptied, and the order appeared in the back office's "To order" queue with the right items, address and total
 
 ### Back office
 
@@ -136,7 +138,7 @@ Things only the business owner can decide or sign. These can run in parallel wit
 - [ ] **(you)** Trademark search for "LuxeBaddie" in beauty and hair (USPTO class 3 and 26) before spending on branding
 - [ ] **(you)** Claim the brand handle on Instagram, TikTok, Facebook and Pinterest
 - [ ] **(you)** Finish Stripe activation for live payments (business details, bank account). Turn on Afterpay and Klarna in Stripe's payment method settings: pay-later matters at wig prices, and no code change is needed
-- [ ] **(you)** Set the public business name and branding in Stripe to LuxeBaddie. The checkout page currently shows "Rumothy LLC" to shoppers
+- [ ] **(you)** Set the public business name and branding in Stripe to LuxeBaddie. The checkout page currently shows the Stripe account's own name to shoppers ("Rumothy LLC" on the live account, a made-up placeholder name on the test sandbox)
 - [ ] **(you)** Secure the Stripe Dashboard login with a passkey or authenticator app rather than SMS codes
 - [ ] **(you)** Business email addresses on the domain (for example `support@` and `orders@`), once the domain is registered. Order emails are sent from them, and vendors and customers reply to them
 - [ ] **(you)** Decide store policies: shipping times, returns and exchanges (worn or opened hair and lashes are normally final sale for hygiene), order cancellation
@@ -152,7 +154,8 @@ Things only the business owner can decide or sign. These can run in parallel wit
 Turning the working engine into a store that is ready for real customers.
 
 - [ ] Replace the placeholder catalog with the real vendor line: names, descriptions, options, prices with healthy margin after vendor cost, shipping, Stripe fees and ad spend
-- [ ] Product photography and video (samples from Phase 2), hosted on a CDN
+- [ ] Product photography and video (samples from Phase 2). Photos are uploaded from the back office and are already served from the CDN
+- [ ] Show all of a product's photos on its page. Today the shop shows the first one only
 - [ ] Final shipping rates and free-shipping threshold (currently placeholders: $7.95 flat, free over $150)
 - [ ] Policy pages: shipping, returns, privacy, terms. Contact page and FAQ
 - [ ] Email sending set up on the domain so messages reach the inbox instead of spam (a verified sending domain with SPF, DKIM and DMARC). Comes before any customer email
@@ -207,7 +210,7 @@ The goal is a store that runs with you supervising rather than operating. Each a
 - [ ] Bundle deals (bundles + closure, wig + care kit)
 - [ ] Stock bestsellers for faster delivery and better margin
 - [ ] Customer accounts and order history
-- [ ] Staff accounts for the back office, with limited permissions (for example, someone who can work orders but not change prices)
+- [ ] Staff accounts for the back office, with limited permissions (for example, someone who can work orders but not change prices). Two people editing the same product at once will also need protecting against then; today the later save wins
 - [ ] Search and filters (length, texture, lace type) once the catalog is big enough to need them
 - [ ] Shipping outside the US
 - [ ] Expand the line: hair care, beauty products, accessories

@@ -163,6 +163,44 @@ flowchart TD
 
 Two different payments mapping to one order number is astronomically unlikely, but the flow makes sure it would be loud. A paid order is never silently dropped.
 
+## Ordering: taking a fulfillment step
+
+Source: `backend/src/ordering/adapters/http.ts`, `backend/src/ordering/application/order-service.ts`, `backend/src/ordering/domain/fulfillment.ts`.
+
+```mermaid
+flowchart TD
+    start([The back office asks to move an order one step on])
+    who{Did API Gateway authenticate the caller?}
+    refused401([Refused before any code runs])
+    shape{Is the step one we know, with what it needs?<br/>Shipped needs a carrier and a tracking number}
+    refused400([Refused: invalid request])
+    load[Load the order]
+    exists{Is there such an order?}
+    notFound([Refused: not found])
+    next{Is this the order's next step?<br/>unfulfilled, then ordered from vendor,<br/>then shipped, then delivered}
+    refused409([Refused, with the reason in plain words.<br/>Nothing is recorded])
+    apply[Work out the order after the step:<br/>new status, the time, what was typed in]
+    entry[Build the activity entry:<br/>who, when, which order, which step]
+    save[In one transaction: update the order if it is still in the<br/>status it was loaded in, and add the activity entry]
+    stored{Was it stored?}
+    changed([Refused: someone else changed this order.<br/>Nothing is recorded])
+    done([Done: the order is in its new queue,<br/>and the change is in the activity log])
+
+    start --> who
+    who -- No --> refused401
+    who -- Yes --> shape
+    shape -- No --> refused400
+    shape -- Yes --> load --> exists
+    exists -- No --> notFound
+    exists -- Yes --> next
+    next -- No --> refused409
+    next -- Yes --> apply --> entry --> save --> stored
+    stored -- "No, its status had changed" --> changed
+    stored -- Yes --> done
+```
+
+The order of the steps is checked twice on purpose. The first check gives the owner a clear reason. The second, inside the write, is what makes it safe when two people act at once.
+
 ## Catalog: saving a product
 
 Source: `backend/src/product/adapters/http.ts`, `packages/contracts/src/catalog.ts` (`productSchema`), `backend/src/product/adapters/catalog-change-stream.ts`.

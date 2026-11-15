@@ -212,8 +212,8 @@ sequenceDiagram
     participant Builder as StorefrontBuilder
 
     Admin->>Catalog: PUT /admin/product/{id} (signed request)
-    Catalog->>Products: save(product)
-    Products-->>Catalog: Saved
+    Catalog->>Products: save(product, activity entry)
+    Products-->>Catalog: Saved, with the entry, in one transaction
     Catalog-->>Admin: 200 product
     Note over Catalog,Products: The catalog's work is finished here. It publishes nothing itself.
 
@@ -233,3 +233,57 @@ sequenceDiagram
 ```
 
 Why the event comes from the change stream and not from `CatalogService`: a service that both saves and publishes can do one and fail the other. The stream only contains writes that were committed, so the event can never announce a change that did not happen, and no committed change goes unannounced.
+
+## 6. The owner signs in and takes a fulfillment step
+
+The owner opens an order in the back office and marks it as shipped. Three things are checked before anything is stored: that the caller is a signed-in owner, that the step is the order's next one, and that nobody else moved the order in the meantime.
+
+Source: `backoffice/src/auth`, `backend/lib/owner-sign-in.ts`, `backend/lib/apigateway.ts`, `backend/src/ordering`, `backend/src/shared/adapters/dynamodb-activity.ts`.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Owner
+    participant Office as Back office (browser)
+    participant Cognito as Cognito sign-in pages
+    participant Gateway as API Gateway
+    participant Orders as OrderService
+    participant Policy as FulfillmentPolicy
+    participant Repo as OrderRepository
+
+    Owner->>Office: Opens the back office
+    Office->>Office: No session: show "Taking you to sign-in" and nothing else
+    Office->>Cognito: Redirect to sign in (authorization code flow with PKCE)
+    Owner->>Cognito: Password, then authenticator code
+    Cognito-->>Office: Redirect back with a one-time code
+    Office->>Cognito: Exchange the code for tokens
+    Cognito-->>Office: Sign-in token (15 minutes) and a renewal token (12 hours)
+
+    Owner->>Office: Mark order as shipped (carrier, tracking number), clicked twice
+    Office->>Gateway: POST /backoffice/order/{id}/fulfillment-step, with the token
+    Gateway->>Cognito: Is this token one of ours, and still valid?
+    alt No valid token
+        Gateway-->>Office: 401. The back office sends the owner to sign in again
+    else Valid
+        Gateway->>Orders: takeFulfillmentStep(id, step, actor = the owner's email from the token)
+        Orders->>Repo: findById(id)
+        Orders->>Policy: whyStepIsRefused(order, step)
+        alt Not the order's next step
+            Orders-->>Office: 409, with the reason in plain words
+        else The next step
+            Orders->>Policy: takeStep(order, step, now)
+            Orders->>Repo: saveFulfillment(order, from, activity entry)
+            Note right of Repo: One transaction: update the order only if it is still<br/>in the status it was read in, and add the activity entry
+            alt Someone else changed the order first
+                Repo-->>Orders: changed meanwhile. Nothing was written
+                Orders-->>Office: 409. Reload and try again
+            else Stored
+                Repo-->>Orders: saved
+                Orders-->>Office: 200, the order as it now is
+            end
+        end
+    end
+```
+
+The same routes exist under `/admin` for AWS-signed requests. There API Gateway checks the request's signature instead of a token, and the actor recorded is the AWS identity that signed it.
+
