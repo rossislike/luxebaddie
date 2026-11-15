@@ -12,8 +12,8 @@ export function ProductCard({ product }: { product: Product }) {
       <div className="aspect-[4/5] overflow-hidden rounded-sm bg-sand">
         <ProductImage product={product} className="transition-transform duration-700 ease-out group-hover:scale-[1.04]" />
       </div>
-      <div className="mt-4 flex items-baseline justify-between gap-4">
-        <h3 className="font-display text-xl leading-snug text-ink">{product.name}</h3>
+      <div className="mt-4 flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between sm:gap-4">
+        <h3 className="font-display text-lg leading-snug text-ink sm:text-xl">{product.name}</h3>
         {from !== null && (
           <p className="shrink-0 text-sm tracking-wide text-cocoa">
             {hasRange && "From "}

@@ -34,9 +34,9 @@ export default async function HomePage() {
         {hero && (
           <Link href={`/products/${hero.id}`} className="group relative block aspect-[4/5] overflow-hidden rounded-sm">
             <ProductImage product={hero} className="transition-transform duration-700 ease-out group-hover:scale-[1.03]" />
-            <span className="absolute inset-x-0 bottom-0 flex items-end justify-between bg-gradient-to-t from-ink/80 to-transparent p-6 pt-24 text-cream">
+            <span className="absolute inset-x-0 bottom-0 flex items-end justify-between gap-4 bg-gradient-to-t from-ink/80 to-transparent p-6 pt-24 text-cream">
               <span className="font-display text-2xl">{hero.name}</span>
-              <span className="text-xs tracking-[0.2em] uppercase">Shop now</span>
+              <span className="shrink-0 text-xs tracking-[0.2em] uppercase">Shop now</span>
             </span>
           </Link>
         )}
@@ -89,12 +89,12 @@ export default async function HomePage() {
 
       {featured.length > 0 && (
         <section className="mx-auto max-w-7xl px-5 pt-20 lg:px-10">
-          <div className="mb-10 flex items-end justify-between">
+          <div className="mb-10 flex items-end justify-between gap-4">
             <div>
               <p className="eyebrow">The edit</p>
-              <h2 className="mt-3 font-display text-4xl sm:text-5xl">Most wanted</h2>
+              <h2 className="mt-3 font-display text-3xl xs:text-4xl sm:text-5xl">Most wanted</h2>
             </div>
-            <Link href="/shop" className="link-underline text-xs tracking-[0.2em] uppercase">
+            <Link href="/shop" className="link-underline tap-target shrink-0 text-xs tracking-[0.2em] uppercase">
               View all
             </Link>
           </div>

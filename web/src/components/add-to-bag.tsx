@@ -51,7 +51,7 @@ export function AddToBag({ product }: { product: Product }) {
                     setSelection(select(product, selection, name, value));
                     setStatus("idle");
                   }}
-                  className={`min-w-14 border px-4 py-2.5 text-sm transition-colors ${
+                  className={`tap-target min-w-14 border px-4 py-2.5 text-sm transition-colors ${
                     selected
                       ? "border-ink bg-ink text-cream"
                       : `border-ink/25 hover:border-ink ${selectable ? "" : "text-ink/40"}`
@@ -73,7 +73,7 @@ export function AddToBag({ product }: { product: Product }) {
         {status === "added" && (
           <>
             Added to your bag.{" "}
-            <Link href="/bag" className="link-underline font-medium text-wine">
+            <Link href="/bag" className="link-underline tap-target font-medium text-wine">
               View bag
             </Link>
           </>

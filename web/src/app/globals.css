@@ -12,6 +12,16 @@
 
   --font-display: var(--font-bodoni), "Didot", "Bodoni MT", serif;
   --font-sans: var(--font-jost), ui-sans-serif, system-ui, sans-serif;
+
+  /* 360px and up: every phone but the narrowest ones (320px), where the header needs tighter spacing to stay on one row. */
+  --breakpoint-xs: 22.5rem;
+}
+
+/* A phone held sideways: too little height to give any of it to a fixed header. */
+@custom-variant short {
+  @media (max-height: 30rem) {
+    @slot;
+  }
 }
 
 body {
@@ -32,9 +42,25 @@ body {
     padding-bottom: 2px;
     transition: background-size 300ms ease;
   }
-  .link-underline:hover,
   .link-underline:focus-visible {
     background-size: 100% 1px;
+  }
+
+  /*
+   * Grows the area that responds to a tap to at least 44px each way, for links and
+   * buttons that are drawn smaller than a fingertip. Nothing changes visually.
+   */
+  .tap-target {
+    position: relative;
+  }
+  .tap-target::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 2.75rem);
+    height: max(100%, 2.75rem);
+    transform: translate(-50%, -50%);
   }
 
   .btn {
@@ -58,16 +84,23 @@ body {
     background: var(--color-ink);
     color: var(--color-cream);
   }
-  .btn-primary:hover:not(:disabled) {
-    background: var(--color-wine);
-  }
   .btn-outline {
     border: 1px solid currentColor;
   }
-  .btn-outline:hover:not(:disabled) {
-    background: var(--color-ink);
-    color: var(--color-cream);
-    border-color: var(--color-ink);
+
+  /* A touch screen keeps the hover look after a tap, so hover styles are for pointers only. */
+  @media (hover: hover) {
+    .link-underline:hover {
+      background-size: 100% 1px;
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: var(--color-wine);
+    }
+    .btn-outline:hover:not(:disabled) {
+      background: var(--color-ink);
+      color: var(--color-cream);
+      border-color: var(--color-ink);
+    }
   }
 
   .eyebrow {

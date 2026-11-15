@@ -68,7 +68,7 @@ export function Bag() {
           </div>
         </dl>
         {toFreeShipping > 0 && (
-          <p className="mt-5 text-xs text-cocoa">Add {formatMoney(toFreeShipping)} more for free shipping.</p>
+          <p className="mt-5 text-sm text-cocoa lg:text-xs">Add {formatMoney(toFreeShipping)} more for free shipping.</p>
         )}
         <button type="button" onClick={checkout} disabled={saving || redirecting} className="btn btn-primary mt-7 w-full">
           {redirecting ? "Opening checkout..." : "Checkout"}
@@ -97,7 +97,7 @@ function BagLine({ line, disabled }: { line: PricedLine; disabled: boolean }) {
               aria-label={`Decrease quantity of ${line.productName}`}
               disabled={disabled}
               onClick={() => setQuantity(line.quantity - 1)}
-              className="px-3 py-1.5 disabled:opacity-40"
+              className="tap-target px-3 py-1.5 disabled:opacity-40"
             >
               −
             </button>
@@ -109,7 +109,7 @@ function BagLine({ line, disabled }: { line: PricedLine; disabled: boolean }) {
               aria-label={`Increase quantity of ${line.productName}`}
               disabled={disabled || line.quantity >= MAX_QUANTITY_PER_LINE}
               onClick={() => setQuantity(line.quantity + 1)}
-              className="px-3 py-1.5 disabled:opacity-40"
+              className="tap-target px-3 py-1.5 disabled:opacity-40"
             >
               +
             </button>
@@ -118,7 +118,7 @@ function BagLine({ line, disabled }: { line: PricedLine; disabled: boolean }) {
             type="button"
             disabled={disabled}
             onClick={() => setQuantity(0)}
-            className="link-underline text-xs tracking-[0.15em] text-cocoa uppercase"
+            className="link-underline tap-target text-xs tracking-[0.15em] text-cocoa uppercase"
           >
             Remove
           </button>
