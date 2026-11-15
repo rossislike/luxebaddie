@@ -14,9 +14,9 @@ _Last updated: 2026-11-15_
 
 Changes now publish themselves: merging a change puts it live on `dev` and tests it there, with nobody running a command.
 
-The store has no back office yet. Products and orders can be managed, but only by running a script with AWS credentials: there is no sign-in and no screen to click through.
+The back office is under construction. Its sign-in service is in place: an owner account by invitation only, with an authenticator-app code at every sign-in. There are no screens yet, so products and orders are still managed by running a script with AWS credentials.
 
-**Next up:** a mobile pass on every page, since most ad traffic will be on phones. Then the back office, starting with owner sign-in, so the real catalog can be loaded and orders worked without a script.
+**Next up:** the back-office site with its sign-in page, then the screens for working orders and managing the catalog.
 
 **Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
 
@@ -72,12 +72,14 @@ The machinery: a site customers can buy from, a backend that records what they b
 Where you run the store: a private site, behind a sign-in, for managing products and working orders. None of it waits on a business decision, so it can be built now.
 
 - [x] The back-office functions exist behind the scenes: list, add, replace and remove products, see the queue of unfulfilled orders, look up an order by number, and list a customer's orders by email. They can only be reached by script, with AWS credentials
-- [ ] Owner sign-in, using Amazon Cognito (AWS's sign-in service) rather than anything home-made:
-  - One invited account. There is no public sign-up page, so nobody can register themselves
-  - A second step at every sign-in (authenticator app or passkey, not SMS codes)
-  - Sessions expire, and you can sign out everywhere if a device is lost
-  - The back-office functions accept the signed-in owner. The signed requests that scripts and the automated tests use today keep working
-  - Tested: a visitor who is not signed in is refused by every back-office function and never sees a back-office page
+- [~] Owner sign-in, using Amazon Cognito (AWS's sign-in service) rather than anything home-made. The sign-in service is built and tested (2026-11-15); the sign-in page and your invitation arrive with the back-office site, the next item:
+  - [x] Accounts by invitation only. There is no way to register, and an attempt to is refused
+  - [x] A second step at every sign-in: a six-digit code from an authenticator app. Text-message and email codes are switched off
+  - [x] Sessions expire after 12 hours, and you can sign out everywhere if a device is lost. That takes full effect within 15 minutes
+  - [x] The back-office functions accept the signed-in owner. The signed requests that scripts and the automated tests use keep working
+  - [x] Tested on `dev` after every deployment: a visitor who is not signed in is refused by every back-office function, a made-up sign-in is refused too, and a signed-in owner gets in
+  - [ ] Tested: a visitor who is not signed in never sees a back-office page (needs the back-office site)
+  - Not included: signing in with a passkey (fingerprint or face). Cognito supports it and it can be added later; the authenticator app covers the requirement
 - [ ] Back-office site at its own address, separate from the shop. Not linked from the shop and hidden from search engines, with the same security headers as the storefront
 - [ ] Orders screens: the queue of orders to fulfil (oldest first), an order's details (items, shipping address, totals, a link to the payment in Stripe), and search by order number or customer email
 - [ ] Fulfillment actions: mark an order as ordered from the vendor, add the carrier and tracking number, mark it shipped and delivered. The order of steps is enforced, so an order cannot skip a step or go backwards by accident

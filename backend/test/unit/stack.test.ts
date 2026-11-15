@@ -3,6 +3,7 @@ import { Match, Template } from "aws-cdk-lib/assertions";
 import { beforeAll, describe, expect, it } from "vitest";
 import { LuxeBaddieStack } from "../../lib/luxebaddie-stack";
 import { stageConfigFor } from "../../lib/stage-config";
+import { BACK_OFFICE_ROUTES } from "../back-office-routes";
 
 let template: Template;
 
@@ -166,32 +167,13 @@ describe("LuxeBaddieStack", () => {
     expect(readersOf("stripe/webhook-secret")).toEqual([expect.stringMatching(/paymentLambdaFunction/)]);
   });
 
-  it("requires IAM auth on every admin route and none on public routes", () => {
-    const resources = template.findResources("AWS::ApiGateway::Resource");
-    const methods = Object.values(template.findResources("AWS::ApiGateway::Method")).filter(
-      (m) => m.Properties.HttpMethod !== "OPTIONS",
-    );
+  it("requires AWS-signed requests on every admin route, the owner's sign-in on every back-office route, and nothing on public routes", () => {
+    const routesWith = (auth: string) => apiRoutes().filter((r) => r.auth === auth).map((r) => r.route).sort();
+    const under = (prefix: string) => BACK_OFFICE_ROUTES.map((route) => route.replace(" /", ` ${prefix}/`)).sort();
 
-    // Walks parent links to rebuild each method's full path, e.g. /admin/product/{id}.
-    const pathOf = (ref: { Ref?: string }): string => {
-      const resource = ref.Ref ? resources[ref.Ref] : undefined;
-      return resource ? `${pathOf(resource.Properties.ParentId)}/${resource.Properties.PathPart}` : "";
-    };
-
-    const routes = methods.map((m) => ({
-      route: `${m.Properties.HttpMethod} ${pathOf(m.Properties.ResourceId)}`,
-      auth: m.Properties.AuthorizationType,
-    }));
-
-    expect(routes.filter((r) => r.auth === "AWS_IAM").map((r) => r.route).sort()).toEqual([
-      "DELETE /admin/product/{id}",
-      "GET /admin/customer/{email}/order",
-      "GET /admin/order",
-      "GET /admin/order/{id}",
-      "GET /admin/product",
-      "PUT /admin/product/{id}",
-    ]);
-    expect(routes.filter((r) => r.auth === "NONE").map((r) => r.route).sort()).toEqual([
+    expect(routesWith("AWS_IAM")).toEqual(under("/admin"));
+    expect(routesWith("COGNITO_USER_POOLS")).toEqual(under("/backoffice"));
+    expect(routesWith("NONE")).toEqual([
       "DELETE /basket/{id}",
       "GET /basket/{id}",
       "GET /order/session/{sessionId}",
@@ -202,6 +184,89 @@ describe("LuxeBaddieStack", () => {
       "PUT /basket/{id}",
     ]);
   });
+});
+
+/** Every route of the API with how its caller is checked, e.g. { route: "GET /admin/product", auth: "AWS_IAM" }. */
+function apiRoutes(): { route: string; auth: string }[] {
+  const resources = template.findResources("AWS::ApiGateway::Resource");
+  const methods = Object.values(template.findResources("AWS::ApiGateway::Method")).filter(
+    (method) => method.Properties.HttpMethod !== "OPTIONS",
+  );
+
+  // Walks parent links to rebuild each method's full path, e.g. /admin/product/{id}.
+  const pathOf = (ref: { Ref?: string }): string => {
+    const resource = ref.Ref ? resources[ref.Ref] : undefined;
+    return resource ? `${pathOf(resource.Properties.ParentId)}/${resource.Properties.PathPart}` : "";
+  };
+
+  return methods.map((method) => ({
+    route: `${method.Properties.HttpMethod} ${pathOf(method.Properties.ResourceId)}`,
+    auth: method.Properties.AuthorizationType,
+  }));
+}
+
+describe("owner sign-in", () => {
+  it("lets nobody register: accounts exist by invitation only", () => {
+    template.resourceCountIs("AWS::Cognito::UserPool", 1);
+    template.hasResourceProperties("AWS::Cognito::UserPool", {
+      AdminCreateUserConfig: Match.objectLike({ AllowAdminCreateUserOnly: true }),
+    });
+  });
+
+  it("requires a second step from an authenticator app, never a text message or an email", () => {
+    template.hasResourceProperties("AWS::Cognito::UserPool", {
+      MfaConfiguration: "ON",
+      EnabledMfas: ["SOFTWARE_TOKEN_MFA"],
+    });
+  });
+
+  it("ends a session after twelve hours and a token after fifteen minutes", () => {
+    template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      RefreshTokenValidity: 720,
+      IdTokenValidity: 15,
+      AccessTokenValidity: 15,
+      TokenValidityUnits: { RefreshToken: "minutes", IdToken: "minutes", AccessToken: "minutes" },
+      EnableTokenRevocation: true,
+    });
+  });
+
+  it("gives the browser no secret to keep and does not say which emails have an account", () => {
+    template.hasResourceProperties("AWS::Cognito::UserPoolClient", {
+      GenerateSecret: false,
+      PreventUserExistenceErrors: "ENABLED",
+    });
+  });
+
+  it("checks the owner's token against this user pool on every request", () => {
+    template.resourceCountIs("AWS::ApiGateway::Authorizer", 1);
+    template.hasResourceProperties("AWS::ApiGateway::Authorizer", {
+      Type: "COGNITO_USER_POOLS",
+      IdentitySource: "method.request.header.Authorization",
+      AuthorizerResultTtlInSeconds: 0,
+      ProviderARNs: [{ "Fn::GetAtt": [Match.stringLikeRegexp("^OwnerSignInOwners"), "Arn"] }],
+    });
+  });
+
+  it("lets a browser page read the API's refusals", () => {
+    for (const ResponseType of ["DEFAULT_4XX", "DEFAULT_5XX"]) {
+      template.hasResourceProperties("AWS::ApiGateway::GatewayResponse", {
+        ResponseType,
+        ResponseParameters: { "gatewayresponse.header.Access-Control-Allow-Origin": "'*'" },
+      });
+    }
+  });
+
+  it("allows password sign-in through the AWS API only where the end-to-end tests run", () => {
+    const flowsOf = (candidate: Template) =>
+      Object.values(candidate.findResources("AWS::Cognito::UserPoolClient"))[0]?.Properties.ExplicitAuthFlows;
+    const withoutTests = new LuxeBaddieStack(new App(), "NoTests", {
+      config: { ...stageConfigFor("dev"), endToEndTestAccess: false },
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+
+    expect(flowsOf(template)).toContain("ALLOW_ADMIN_USER_PASSWORD_AUTH");
+    expect(flowsOf(Template.fromStack(withoutTests))).not.toContain("ALLOW_ADMIN_USER_PASSWORD_AUTH");
+  }, 120_000);
 });
 
 describe("catalog change feed", () => {
@@ -415,6 +480,17 @@ describe("end-to-end test access", () => {
       ["CallTheAdminRoutes", "execute-api:Invoke"],
       ["AnnounceAPaidCheckout", "events:PutEvents"],
       ["RemoveTheOrdersItCreated", "dynamodb:DeleteItem"],
+      [
+        "SignInAsATemporaryOwner",
+        [
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminSetUserPassword",
+          "cognito-idp:AdminInitiateAuth",
+          "cognito-idp:AdminRespondToAuthChallenge",
+          "cognito-idp:AdminUserGlobalSignOut",
+          "cognito-idp:AdminDeleteUser",
+        ],
+      ],
       ["SeeWhetherStripeIsConnected", "ssm:DescribeParameters"],
     ]);
   });
@@ -436,6 +512,12 @@ describe("end-to-end test access", () => {
   it("can delete orders but no other item", () => {
     expect(statement("RemoveTheOrdersItCreated")?.Condition).toEqual({
       "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["ORDER#*"] },
+    });
+  });
+
+  it("manages owners of this stage's user pool only", () => {
+    expect(statement("SignInAsATemporaryOwner")?.Resource).toEqual({
+      "Fn::GetAtt": [expect.stringMatching(/^OwnerSignInOwners/), "Arn"],
     });
   });
 

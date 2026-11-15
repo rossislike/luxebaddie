@@ -1,7 +1,7 @@
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { allowedOrigin, header, httpRouter, parseBody } from "../../../src/shared/adapters/api-gateway";
+import { allowedOrigin, backOfficeRoutes, header, httpRouter, parseBody } from "../../../src/shared/adapters/api-gateway";
 import { conflict, notFound } from "../../../src/shared/errors";
 
 const request = (overrides: Partial<APIGatewayProxyEvent>): APIGatewayProxyEvent =>
@@ -25,6 +25,20 @@ const router = httpRouter({
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+});
+
+describe("backOfficeRoutes", () => {
+  const backOffice = httpRouter(backOfficeRoutes({ "PUT /thing/{id}": async () => ({ body: { saved: true } }) }));
+
+  it.each(["/admin/thing/{id}", "/backoffice/thing/{id}"])("serves a back-office route under %s", async (resource) => {
+    const response = await backOffice(request({ httpMethod: "PUT", resource }));
+
+    expect(JSON.parse(response.body)).toEqual({ saved: true });
+  });
+
+  it("does not serve it without a back-office prefix", async () => {
+    expect((await backOffice(request({ httpMethod: "PUT", resource: "/thing/{id}" }))).statusCode).toBe(404);
+  });
 });
 
 describe("httpRouter", () => {
