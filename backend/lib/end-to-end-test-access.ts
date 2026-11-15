@@ -5,7 +5,9 @@ import type { IUserPool } from "aws-cdk-lib/aws-cognito";
 import type { ITable } from "aws-cdk-lib/aws-dynamodb";
 import type { IEventBus } from "aws-cdk-lib/aws-events";
 import { PolicyStatement, Role } from "aws-cdk-lib/aws-iam";
+import type { IBucket } from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
+import { PHOTO_KEY_PREFIX } from "../src/product/adapters/s3-photo-store";
 import { itemsWithKeyPrefix } from "./database";
 import { githubActions, githubRoleNames } from "./github-actions";
 import type { StageConfig } from "./stage-config";
@@ -16,6 +18,7 @@ interface LbEndToEndTestAccessProps {
   eventBus: IEventBus;
   table: ITable;
   ownerUserPool: IUserPool;
+  photoBucket: IBucket;
 }
 
 /**
@@ -74,6 +77,13 @@ export class LbEndToEndTestAccess extends Construct {
         actions: ["dynamodb:DeleteItem"],
         resources: [props.table.tableArn],
         conditions: itemsWithKeyPrefix(["ORDER#"]),
+      }),
+    );
+    tester.addToPolicy(
+      new PolicyStatement({
+        sid: "RemoveThePhotosItUploaded",
+        actions: ["s3:DeleteObject"],
+        resources: [props.photoBucket.arnForObjects(`${PHOTO_KEY_PREFIX}*`)],
       }),
     );
     // The tests invite a throwaway owner, sign in as them and delete them, to

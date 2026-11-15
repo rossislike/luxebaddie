@@ -14,7 +14,7 @@ export const GSI2 = "GSI2";
 /** Expiry in epoch seconds. DynamoDB deletes the item some time after this passes. */
 export const TTL_ATTRIBUTE = "TTL";
 
-export type EntityType = "Product" | "Basket" | "Order";
+export type EntityType = "Product" | "Basket" | "Order" | "Activity";
 
 export type IndexingAttributes = {
   PK: string;

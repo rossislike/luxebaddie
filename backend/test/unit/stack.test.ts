@@ -77,24 +77,36 @@ describe("LuxeBaddieStack", () => {
           keys: statement.Condition?.["ForAllValues:StringLike"]?.["dynamodb:LeadingKeys"],
         }));
 
+    // Each service that makes back-office changes may add to the activity log, and do nothing else with it.
+    const addToTheLog = { actions: ["PutItem"], onIndex: null, keys: ["ACTIVITY*"] };
+
     expect(dynamoGrantsOf("product")).toEqual([
       { actions: ["GetItem", "PutItem", "DeleteItem"], onIndex: null, keys: ["PRODUCT#*"] },
       { actions: ["Query"], onIndex: "GSI1", keys: ["CATALOG*"] },
+      addToTheLog,
     ]);
     expect(dynamoGrantsOf("basket")).toEqual([
       { actions: ["GetItem", "PutItem", "DeleteItem"], onIndex: null, keys: ["BASKET#*"] },
       { actions: ["BatchGetItem"], onIndex: null, keys: ["PRODUCT#*"] },
     ]);
     expect(dynamoGrantsOf("ordering")).toEqual([
-      { actions: ["GetItem", "PutItem"], onIndex: null, keys: ["ORDER#*"] },
+      { actions: ["GetItem", "PutItem", "UpdateItem"], onIndex: null, keys: ["ORDER#*"] },
       { actions: ["Query"], onIndex: "GSI1", keys: ["CUSTOMER#*"] },
       { actions: ["Query"], onIndex: "GSI2", keys: ["FULFILLMENT#*"] },
+      addToTheLog,
     ]);
+    // The service that reads the log cannot write to it, or to anything else.
+    expect(dynamoGrantsOf("activity")).toEqual([
+      { actions: ["Query"], onIndex: null, keys: ["ACTIVITY*"] },
+      { actions: ["Query"], onIndex: "GSI1", keys: ["ACTIVITY#*"] },
+    ]);
+    expect(dynamoGrantsOf("basket").flatMap((grant) => grant.keys)).not.toContain("ACTIVITY*");
     expect(dynamoGrantsOf("payment")).toEqual([]);
   });
 
   it("creates one Lambda per microservice, plus the product service's change relay and the back office's publisher", () => {
     expect(Object.keys(serviceFunctions()).map((id) => id.replace(/LambdaFunction.*/, "")).sort()).toEqual([
+      "Microservicesactivity",
       "MicroservicesbackOfficePublisher",
       "Microservicesbasket",
       "Microservicesordering",
@@ -452,7 +464,7 @@ describe.each(SITES)("$title hosting", ({ hosting }) => {
 
 describe("the two sites", () => {
   it("are separate: each has its own buckets and its own distribution", () => {
-    template.resourceCountIs("AWS::S3::Bucket", 4);
+    template.resourceCountIs("AWS::S3::Bucket", 5); // two per site, and the product photos
     template.resourceCountIs("AWS::CloudFront::Distribution", 2);
   });
 
@@ -565,10 +577,73 @@ describe("the storefront's and the back office's settings", () => {
   it("builds the back office against this stage's API and sign-in", () => {
     expect(settingsOf("BackOfficeBuild")).toEqual([
       "NEXT_PUBLIC_API_URL",
+      "NEXT_PUBLIC_PHOTO_UPLOAD_URL",
       "NEXT_PUBLIC_SIGN_IN_CLIENT_ID",
       "NEXT_PUBLIC_SIGN_IN_ISSUER",
       "NEXT_PUBLIC_SIGN_IN_PAGES_URL",
     ]);
+  });
+});
+
+describe("product photos", () => {
+  const bucket = () => only("AWS::S3::Bucket", "ProductPhotos");
+  const storefront = () => only("AWS::CloudFront::Distribution", "StorefrontHosting").Properties.DistributionConfig;
+
+  it("are kept in a private, encrypted, HTTPS-only bucket of their own", () => {
+    expect(bucket().Properties).toMatchObject({
+      PublicAccessBlockConfiguration: { BlockPublicAcls: true, BlockPublicPolicy: true, IgnorePublicAcls: true, RestrictPublicBuckets: true },
+      BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: "AES256" } }] },
+      OwnershipControls: { Rules: [{ ObjectOwnership: "BucketOwnerEnforced" }] },
+    });
+  });
+
+  it("can be read by the storefront's distribution and nobody else", () => {
+    const readers = statementsOf("AWS::S3::BucketPolicy", "ProductPhotos").filter(
+      (statement) => statement.Effect === "Allow" && [statement.Action].flat().includes("s3:GetObject"),
+    );
+
+    expect(readers.map((statement) => statement.Principal)).toEqual([{ Service: "cloudfront.amazonaws.com" }]);
+    expect(JSON.stringify(readers[0]?.Condition.StringEquals["AWS:SourceArn"])).toContain("StorefrontHostingDistribution");
+  });
+
+  it("are served under /media on the storefront, as files, with its security headers", () => {
+    const [media] = storefront().CacheBehaviors;
+    const photoOrigin = storefront().Origins.find((origin: Resource) => JSON.stringify(origin.DomainName).includes("ProductPhotos"));
+
+    expect(storefront().CacheBehaviors).toHaveLength(1);
+    expect(media).toMatchObject({ PathPattern: "/media/*", ViewerProtocolPolicy: "redirect-to-https", TargetOriginId: photoOrigin.Id });
+    expect(media.ResponseHeadersPolicyId).toEqual(storefront().DefaultCacheBehavior.ResponseHeadersPolicyId);
+    // The page router turns /shop into /shop.html. A photo's address is already a file.
+    expect(media.FunctionAssociations).toBeUndefined();
+  });
+
+  it("are not served by the back office's distribution", () => {
+    expect(only("AWS::CloudFront::Distribution", "BackOfficeHosting").Properties.DistributionConfig.CacheBehaviors).toBeUndefined();
+  });
+
+  it("can be uploaded by form post from the back office only", () => {
+    const [rule] = bucket().Properties.CorsConfiguration.CorsRules;
+
+    expect(rule.AllowedMethods).toEqual(["POST"]);
+    expect(JSON.stringify(rule.AllowedOrigins)).toContain("BackOfficeHostingDistribution");
+    expect(JSON.stringify(rule.AllowedOrigins)).not.toContain("StorefrontHostingDistribution");
+  });
+
+  it("lets the product service add photos under media/products and do nothing else with the bucket", () => {
+    const onPhotos = statementsOf("AWS::IAM::Policy", "productLambdaFunction").filter((statement) =>
+      JSON.stringify(statement.Resource).includes("ProductPhotos"),
+    );
+
+    expect(onPhotos.map((statement) => statement.Action)).toEqual(["s3:PutObject"]);
+    expect(JSON.stringify(onPhotos[0]?.Resource)).toContain("/media/products/*");
+  });
+
+  it("tells the product service where photos go and where shoppers see them", () => {
+    const [product] = Object.entries(serviceFunctions()).filter(([id]) => id.startsWith("MicroservicesproductLambdaFunction"));
+    const { PHOTO_BUCKET_NAME, PHOTO_BASE_URL } = product?.[1].Properties.Environment.Variables;
+
+    expect(JSON.stringify(PHOTO_BUCKET_NAME)).toContain("ProductPhotos");
+    expect(JSON.stringify(PHOTO_BASE_URL)).toContain("StorefrontHostingDistribution");
   });
 });
 
@@ -598,6 +673,7 @@ describe("end-to-end test access", () => {
       ["CallTheAdminRoutes", "execute-api:Invoke"],
       ["AnnounceAPaidCheckout", "events:PutEvents"],
       ["RemoveTheOrdersItCreated", "dynamodb:DeleteItem"],
+      ["RemoveThePhotosItUploaded", "s3:DeleteObject"],
       [
         "SignInAsATemporaryOwner",
         [
@@ -637,6 +713,10 @@ describe("end-to-end test access", () => {
     expect(statement("SignInAsATemporaryOwner")?.Resource).toEqual({
       "Fn::GetAtt": [expect.stringMatching(/^OwnerSignInOwners/), "Arn"],
     });
+  });
+
+  it("can delete uploaded photos, and nothing else in the photo bucket", () => {
+    expect(JSON.stringify(statement("RemoveThePhotosItUploaded")?.Resource)).toMatch(/ProductPhotos.*\/media\/products\/\*/);
   });
 
   it("cannot read a Stripe key", () => {

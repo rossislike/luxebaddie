@@ -23,13 +23,23 @@ export function orderIdForSession(checkoutSessionId: string): string {
   return `LB-${code}`;
 }
 
+/** An order nothing has been done about yet. Also what an order stored before fulfillment was tracked reads as. */
+export const NOT_YET_FULFILLED = {
+  fulfillmentStatus: "unfulfilled",
+  vendorOrderReference: null,
+  orderedFromVendorAt: null,
+  shipment: null,
+  shippedAt: null,
+  deliveredAt: null,
+} satisfies Partial<Order>;
+
 /** A paid checkout becomes an order waiting to be fulfilled. */
 export function orderFromCheckout(checkout: CheckoutCompleted, createdAt: Date): Order {
   const { basketId: _basketId, ...purchase } = checkout;
   return {
     ...purchase,
     id: orderIdForSession(checkout.checkoutSessionId),
-    fulfillmentStatus: "unfulfilled",
+    ...NOT_YET_FULFILLED,
     createdAt: createdAt.toISOString(),
   };
 }

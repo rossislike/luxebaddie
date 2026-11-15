@@ -16,7 +16,7 @@ import { pagePolicy, visibleText } from "./support";
 const STAGE = "dev";
 
 /** Every screen of the back office. Add a screen here when one is added to backoffice/src/app/(office). */
-const SCREENS = ["/"];
+const SCREENS = ["/", "/orders", "/order?id=LB-7K3M9Q2XAB", "/customer?email=someone%40example.com", "/catalog", "/product?id=some-wig", "/product/new", "/activity"];
 /** The pages a visitor passes through while signing in and out. They show no store data. */
 const SIGN_IN_PAGES = ["/sign-in/callback", "/signed-out"];
 
@@ -112,7 +112,7 @@ describe("a visitor who is not signed in", () => {
   });
 
   it.each([...SCREENS, ...SIGN_IN_PAGES])(
-    "gets a page at %s that runs only its own scripts and talks only to the API and the sign-in service",
+    "gets a page at %s that runs only its own scripts and talks only to the API, the sign-in service and the photo storage",
     async (path) => {
       const { scriptSources, connectSources, inlineScriptHashes } = pagePolicy(await (await page(path)).text());
 
@@ -124,6 +124,7 @@ describe("a visitor who is not signed in", () => {
         new URL(outputs.ApiUrl).origin,
         new URL(outputs.OwnerSignInIssuer).origin,
         outputs.OwnerSignInPagesUrl,
+        outputs.PhotoUploadUrl,
       ]);
     },
   );

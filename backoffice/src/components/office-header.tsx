@@ -5,12 +5,17 @@ import { usePathname } from "next/navigation";
 import { ownerSession } from "@/auth/owner-session";
 import { useOwner } from "@/auth/signed-in-only";
 
-const sections = [{ href: "/", label: "Home" }];
+const sections = [
+  { href: "/", label: "Home" },
+  { href: "/orders", label: "Orders", alsoCovers: ["/order", "/customer"] },
+  { href: "/catalog", label: "Catalog", alsoCovers: ["/product", "/product/new"] },
+  { href: "/activity", label: "Activity" },
+];
 
 export function OfficeHeader() {
   const owner = useOwner();
   const pathname = usePathname();
-  const isCurrent = (href: string) => (href === "/" ? pathname === "/" : pathname.startsWith(href));
+  const isCurrent = ({ href, alsoCovers = [] }: (typeof sections)[number]) => [href, ...alsoCovers].includes(pathname);
 
   return (
     <header className="bg-ink text-cream">
@@ -19,14 +24,14 @@ export function OfficeHeader() {
           LUXEBADDIE <span className="font-sans text-xs tracking-[0.2em] text-rose-gold uppercase">Back office</span>
         </Link>
         <nav aria-label="Back office" className="flex flex-1 gap-1 text-sm">
-          {sections.map(({ href, label }) => (
+          {sections.map((section) => (
             <Link
-              key={href}
-              href={href}
-              aria-current={isCurrent(href) ? "page" : undefined}
+              key={section.href}
+              href={section.href}
+              aria-current={isCurrent(section) ? "page" : undefined}
               className="flex min-h-11 items-center px-3 tracking-wide text-cream/70 hover:text-cream aria-[current=page]:text-cream aria-[current=page]:underline aria-[current=page]:underline-offset-8"
             >
-              {label}
+              {section.label}
             </Link>
           ))}
         </nav>

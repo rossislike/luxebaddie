@@ -1,4 +1,5 @@
 import type { FulfillmentStatus, Order } from "@luxebaddie/contracts";
+import { NOT_YET_FULFILLED } from "../ordering/domain/order";
 import { applicationAttributes, assertType, type TableItem, type TableKey } from "./schema";
 
 /**
@@ -37,9 +38,9 @@ function customerIndexKeys(order: Order) {
 
 /**
  * Must be rewritten whenever fulfillmentStatus changes, in the same update,
- * or the order stays in its old queue.
+ * or the order stays in its old queue. fulfillmentAttributes does that.
  */
-export function fulfillmentIndexKeys(order: Pick<Order, "id" | "fulfillmentStatus" | "createdAt">) {
+function fulfillmentIndexKeys(order: Pick<Order, "id" | "fulfillmentStatus" | "createdAt">) {
   return {
     GSI2PK: fulfillmentPartition(order.fulfillmentStatus),
     GSI2SK: `ORDER#${order.createdAt}#${order.id}`,
@@ -56,7 +57,28 @@ export function orderToItem(order: Order): TableItem {
   };
 }
 
+/**
+ * Orders stored before fulfillment was tracked have none of its attributes.
+ * They read as an order nothing has been done about, which is what they are.
+ */
 export function orderFromItem(item: Record<string, unknown>): Order {
   assertType(item, "Order");
-  return applicationAttributes<Order>(item);
+  return { ...NOT_YET_FULFILLED, ...applicationAttributes<Order>(item) };
+}
+
+/**
+ * The attributes a change in fulfillment rewrites: the progress itself, and
+ * the index keys that put the order in its new queue. Everything else about
+ * an order is fixed at purchase and is never written again.
+ */
+export function fulfillmentAttributes(order: Order) {
+  return {
+    ...fulfillmentIndexKeys(order),
+    fulfillmentStatus: order.fulfillmentStatus,
+    vendorOrderReference: order.vendorOrderReference,
+    orderedFromVendorAt: order.orderedFromVendorAt,
+    shipment: order.shipment,
+    shippedAt: order.shippedAt,
+    deliveredAt: order.deliveredAt,
+  };
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import type { Order, Page, Product } from "@luxebaddie/contracts";
+import Link from "next/link";
 import { LoadState } from "@/components/load-state";
 import { backOfficeFetch } from "@/lib/api";
 import { useLoaded } from "@/lib/use-loaded";
@@ -37,9 +38,14 @@ export default function HomePage() {
         <LoadState loaded={overview}>
           {({ waitingOrders, moreWaiting, productsForSale, draftProducts }) => (
             <dl className="grid gap-4 sm:grid-cols-3">
-              <Figure label="Orders waiting to be fulfilled" value={`${waitingOrders}${moreWaiting ? "+" : ""}`} testId="waiting-orders" />
-              <Figure label="Products for sale" value={String(productsForSale)} testId="products-for-sale" />
-              <Figure label="Draft products" value={String(draftProducts)} testId="draft-products" />
+              <Figure
+                label="Orders waiting to be ordered from the vendor"
+                value={`${waitingOrders}${moreWaiting ? "+" : ""}`}
+                testId="waiting-orders"
+                href="/orders"
+              />
+              <Figure label="Products for sale" value={String(productsForSale)} testId="products-for-sale" href="/catalog" />
+              <Figure label="Draft products" value={String(draftProducts)} testId="draft-products" href="/catalog" />
             </dl>
           )}
         </LoadState>
@@ -48,12 +54,18 @@ export default function HomePage() {
   );
 }
 
-function Figure({ label, value, testId }: { label: string; value: string; testId: string }) {
+function Figure({ label, value, testId, href }: { label: string; value: string; testId: string; href?: string }) {
   return (
     <div className="panel p-6">
       <dt className="text-sm text-cocoa">{label}</dt>
       <dd className="mt-2 font-display text-5xl" data-testid={testId}>
-        {value}
+        {href ? (
+          <Link href={href} className="underline decoration-1 underline-offset-8 hover:text-wine">
+            {value}
+          </Link>
+        ) : (
+          value
+        )}
       </dd>
     </div>
   );

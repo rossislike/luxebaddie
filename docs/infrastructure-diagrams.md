@@ -29,6 +29,8 @@ flowchart TB
             siteBucket[("S3 site bucket<br/>private")]
         end
 
+        photoBucket[("S3 photo bucket<br/>private")]
+
         subgraph officeHosting["Back office hosting"]
             officeCloudfront["CloudFront distribution<br/>its own address, HTTPS,<br/>security headers, no search engines"]
             officeBucket[("S3 site bucket<br/>private")]
@@ -38,7 +40,7 @@ flowchart TB
         signin["Cognito user pool<br/>and its hosted sign-in pages:<br/>invitation only, authenticator app required"]
         lambdas["Lambda microservices<br/>product, basket, payment, ordering,<br/>product change relay, storefront"]
         params[["SSM Parameter Store<br/>encrypted Stripe secrets"]]
-        table[("DynamoDB table<br/>products, bags, orders")]
+        table[("DynamoDB table<br/>products, bags, orders,<br/>activity log")]
 
         subgraph messaging["Events and queues"]
             bus{{"EventBridge event bus"}}
@@ -54,6 +56,8 @@ flowchart TB
     shopper -- "catalog, bag, checkout,<br/>order confirmation" --> apigw
     shopper -- "pays on Stripe's page" --> stripe
     stripe -- "payment webhooks" --> apigw
+    cloudfront -- "reads /media files" --> photoBucket
+    owner -- "uploads photos with<br/>a signed form" --> photoBucket
     owner -- "pages" --> officeCloudfront
     officeCloudfront -- "reads files" --> officeBucket
     owner -- "back-office routes" --> apigw
@@ -83,11 +87,12 @@ This is the map. Monitoring watches every piece, so its arrows are left out here
 | Piece | AWS service | What it does | Defined in |
 | --- | --- | --- | --- |
 | Storefront hosting | CloudFront, S3 | Serves the static site over HTTPS. The bucket is private and only this distribution can read it. A CloudFront Function maps `/shop` to `shop.html` | `lib/site-hosting.ts`, `lib/site-page-router.js` |
+| Product photos | S3, behind the storefront's CloudFront | A private bucket of product photos, served to shoppers at the storefront's address under `/media/`. The back office uploads to it directly with a signed form the product service issues: one file, an agreed kind, at most 5 MB | `lib/product-photos.ts`, `src/product/adapters/s3-photo-store.ts` |
 | Back office hosting | CloudFront, S3 | The same construct a second time: the owner's private site at its own address, with one more header asking search engines not to list it | `lib/site-hosting.ts`, `lib/site-page-router.js` |
 | API | API Gateway (REST) | One base URL in front of every service. 50 requests a second, bursts of 100. Its resource policy decides who may call which route | `lib/apigateway.ts` |
 | Owner sign-in | Cognito | The store owner's account for the back office, and the sign-in pages Cognito hosts for it. Nobody can register, every sign-in needs a code from an authenticator app, a session lasts 12 hours and one token 15 minutes. A signed-in owner is only ever returned to the back office's own addresses | `lib/owner-sign-in.ts`, `scripts/invite-owner.ts` |
-| Microservices | Lambda | Seven functions, one job each. ARM, 512 MB, 25 second timeout, JSON logs, tracing on | `lib/microservices.ts` |
-| Database | DynamoDB | One on-demand table for products, bags and orders, with two overloaded indexes, expiry on bags, and a change stream | `lib/database.ts`, `backend/DATA-MODEL.md` |
+| Microservices | Lambda | Eight functions, one job each. ARM, 512 MB, 25 second timeout, JSON logs, tracing on | `lib/microservices.ts` |
+| Database | DynamoDB | One on-demand table for products, bags, orders and the activity log, with two overloaded indexes, expiry on bags, and a change stream | `lib/database.ts`, `backend/DATA-MODEL.md` |
 | Secrets | SSM Parameter Store | Holds the Stripe keys and webhook signing secret as encrypted `SecureString` parameters | `lib/stage-config.ts`, `scripts/stripe-setup.ts` |
 | Event bus | EventBridge | Publish-subscribe: one rule per event type fans it out to each subscriber's queue | `lib/eventbus.ts` |
 | Queues | SQS | Each subscriber's inbox, with its own retries and dead-letter queue | `lib/queue.ts` |
@@ -102,6 +107,7 @@ Access is enforced by the infrastructure, not by convention.
 | Boundary | Rule | Enforced by |
 | --- | --- | --- |
 | Internet to a site bucket | Never directly. Only through that site's CloudFront distribution | Bucket policy naming the one distribution (origin access control) |
+| Internet to the photo bucket | Reading: never directly, only through the storefront's distribution. Writing: only with a signed upload form, which the product service gives a caller of the back-office routes | Bucket policy naming the storefront's distribution; the form's signed conditions, enforced by S3; a CORS rule admitting form posts from the back office's pages only |
 | Internet to the back office's pages | Anyone can fetch the page files, which hold the screens' code and no store data. They show one line, "Taking you to sign-in", until the visitor has signed in | The sign-in check around every screen (`backoffice/src/auth/signed-in-only.tsx`). The data is protected by the `/backoffice` row below |
 | Internet to public API routes | Anyone, rate limited: `GET /product`, `/basket/{id}`, `GET /order/session/{sessionId}` | API Gateway resource policy and stage throttling |
 | Internet to `/admin` routes | Only AWS identities in this account with permission to invoke them, with signed requests (SigV4) | IAM authorization on each admin method |
@@ -109,6 +115,7 @@ Access is enforced by the infrastructure, not by convention.
 | Anyone to an owner account | Nobody can create one for themselves. Signing in takes the password and a code from the owner's authenticator app | The user pool: sign-up off, second factor required, text-message and email codes off |
 | Internet to `POST /payment/webhook` | Only from Stripe's published addresses, and then only with a valid Stripe signature | Resource policy deny (`lib/stripe-webhook-ips.ts`), then signature check in the payment service |
 | A service to the table | Only items whose key starts with its own prefix. Basket may also read products | IAM conditions on `dynamodb:LeadingKeys` |
+| A service to the activity log | Product and ordering may add entries and nothing else. The activity service may read it and nothing else. So no code that writes the log can read, change or delete it | IAM: `PutItem` only on the `ACTIVITY` key for the writers, `Query` only for the reader |
 | A service to a secret | Only its own parameters | IAM grants per parameter (checked by `test/unit/stack.test.ts`) |
 | GitHub Actions to AWS | Only this repository, and each role only from the kind of run it is for. Credentials last an hour at most; no key is stored | Each role's trust policy, matching the repository and run in GitHub's token exactly (diagram 5) |
 | Browser to other origins | The storefront: only itself and the stage's API. The back office: itself, the API and the sign-in service | Content-Security-Policy written into each page by the build |
@@ -127,10 +134,11 @@ flowchart LR
     subgraph http["Lambdas behind the API"]
         productFn["product"]
         paymentFn["payment"]
+        activityFn["activity<br/>(read-only)"]
     end
 
     subgraph dynamo["DynamoDB table"]
-        items[("Items<br/>products, bags, orders")]
+        items[("Items<br/>products, bags, orders,<br/>activity log")]
         stream["Change stream<br/>product changes only"]
     end
 
@@ -159,10 +167,12 @@ flowchart LR
     apigw -- "/payment/webhook" --> paymentFn
     apigw -- "/order, /admin and /backoffice:<br/>/order, /customer" --> orderingFn
     apigw -- "/basket" --> basketFn
+    apigw -- "/admin and /backoffice:<br/>/activity" --> activityFn
 
-    productFn -- "reads and writes products" --> items
-    orderingFn -- "reads and writes orders" --> items
+    productFn -- "reads and writes products,<br/>adds activity entries" --> items
+    orderingFn -- "reads and writes orders,<br/>adds activity entries" --> items
     basketFn -- "reads and writes bags,<br/>reads products" --> items
+    activityFn -- "reads the activity log" --> items
 
     stream --> relayFn
     relayFn -- "CatalogChanged" --> bus
@@ -426,7 +436,6 @@ These are planned in [ROADMAP.md](../ROADMAP.md) and are deliberately absent fro
 | A custom domain with its certificate and DNS | Diagram 1: in front of CloudFront |
 | A web application firewall, or a CloudFront flat-rate plan | Diagram 1: in front of CloudFront |
 | A dedicated KMS key for the `prod` Stripe parameters, and an alarm on unexpected reads of them | Diagram 3 |
-| Product photo storage, written from the back office and served through the CDN | Diagram 1: a bucket behind CloudFront |
 | A spending alert for `prod` | Diagram 4: next to the alarm topic |
 | Order confirmation and shipping emails, vendor order forwarding | Diagram 2: new subscriber queues on the event bus |
 

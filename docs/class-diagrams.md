@@ -66,8 +66,11 @@ classDiagram
         +listProductsForSale(category) Product[]
         +getProductForSale(id) Product
         +listAllProducts() Product[]
-        +saveProduct(product) void
-        +removeProduct(id) void
+        +getProduct(id) Product
+        +addProduct(product, actor) void
+        +saveProduct(product, actor) void
+        +removeProduct(id, actor) void
+        +startPhotoUpload(contentType) PhotoUpload
     }
 
     class ProductRepository {
@@ -75,8 +78,9 @@ classDiagram
         +findById(id) Product
         +findForSale(category) Product[]
         +findAll() Product[]
-        +save(product) void
-        +remove(id) void
+        +save(product, activity) void
+        +saveNew(product, activity) created or already exists
+        +remove(id, activity) removed or not found
     }
 
     class CatalogEventPublisher {
@@ -298,6 +302,10 @@ classDiagram
         +string checkoutSessionId
         +string paymentIntentId
         +FulfillmentStatus fulfillmentStatus
+        +string vendorOrderReference
+        +DateTime orderedFromVendorAt
+        +DateTime shippedAt
+        +DateTime deliveredAt
         +string email
         +string customerName
         +string phone
@@ -331,12 +339,33 @@ classDiagram
         +string country
     }
 
+    class Shipment {
+        <<Value Object>>
+        +string carrier
+        +string trackingNumber
+    }
+
     class FulfillmentStatus {
         <<enumeration>>
         unfulfilled
         processing
         shipped
         delivered
+    }
+
+    class FulfillmentStep {
+        <<Value Object>>
+        ordered-from-vendor (vendorOrderReference)
+        shipped (shipment)
+        delivered
+    }
+
+    class FulfillmentPolicy {
+        <<Domain Service>>
+        +whyStepIsRefused(order, step) string
+        +takeStep(order, step, at) Order
+        +whyShipmentCorrectionIsRefused(order) string
+        +correctShipment(order, shipment) Order
     }
 
     class OrderConfirmation {
@@ -364,12 +393,15 @@ classDiagram
         +getOrder(id) Order
         +listByFulfillmentStatus(status, page) Page
         +listForCustomer(email, page) Page
+        +takeFulfillmentStep(id, step, actor) Order
+        +correctShipment(id, shipment, actor) Order
     }
 
     class OrderRepository {
         <<Repository>>
         +saveIfNew(order) SaveOutcome
         +findById(id) Order
+        +saveFulfillment(order, from, activity) FulfillmentSaveOutcome
         +findByFulfillmentStatus(status, page) Page
         +findByCustomerEmail(email, page) Page
     }
@@ -380,15 +412,19 @@ classDiagram
 
     Order "1" *-- "1..*" OrderItem : items
     Order "1" *-- "0..1" Address : shippingAddress
+    Order "1" *-- "0..1" Shipment : shipment
     Order --> FulfillmentStatus
+    FulfillmentPolicy ..> FulfillmentStep : applies
+    FulfillmentPolicy ..> Order : moves forward
+    OrderService ..> FulfillmentPolicy : uses
     OrderFactory ..> CheckoutCompleted : reads
     OrderFactory ..> Order : creates
     OrderFactory ..> OrderConfirmation : creates
     OrderService ..> OrderFactory : uses
     OrderService ..> OrderRepository : uses
-    OrderRepository ..> Order : saves once, loads whole
+    OrderRepository ..> Order : saves once, loads whole,<br/>rewrites fulfillment only
 
-    note for Order "Invariants:<br/>- id is derived from checkoutSessionId, so one<br/>  payment can only ever be one order<br/>- created only from a CheckoutCompleted event<br/>- starts as unfulfilled<br/>- has at least one item<br/>- never overwritten once saved"
+    note for Order "Invariants:<br/>- id is derived from checkoutSessionId, so one<br/>  payment can only ever be one order<br/>- created only from a CheckoutCompleted event<br/>- starts as unfulfilled<br/>- has at least one item<br/>- what was bought is never rewritten<br/>- fulfillment only moves forward, one step<br/>  at a time: unfulfilled, processing, shipped, delivered<br/>- has a shipment from the moment it ships"
     note for OrderItem "A snapshot: the description and price are what<br/>the customer saw and paid, copied at purchase.<br/>Later catalog changes do not touch it."
     note for OrderConfirmation "What the buyer may see.<br/>No payment or internal identifiers."
 ```
@@ -398,7 +434,8 @@ Notes:
 - **The order number is the idempotency key.** `orderIdForSession` hashes the checkout session id into a readable number like `LB-7K3M9Q2XAB`. The same session always gives the same number, and `saveIfNew` refuses to overwrite, so a payment event delivered twice still produces one order.
 - **An order copies what it needs and keeps it.** `OrderItem` carries `productId` and `sku` as references back to the catalog, but its description and price are frozen at purchase.
 - **`Customer` is implicit.** Today a customer is the `email` on their orders, which is what `findByCustomerEmail` uses. There is no `Customer` aggregate yet.
-- **Changing `fulfillmentStatus` is planned, not built.** Every order is currently `unfulfilled`. When the fulfillment workflow lands, the allowed transitions (`unfulfilled` to `processing` to `shipped` to `delivered`) belong in `domain/order.ts` and in this diagram.
+- **Fulfillment only moves forward.** `domain/fulfillment.ts` holds the rule: `unfulfilled` to `processing` (ordered from the vendor) to `shipped` to `delivered`, one step at a time, never skipping and never back. A refused step comes with the reason in plain words, which the back office shows as is. The one change allowed without moving is correcting the carrier or tracking number while an order is on its way.
+- **Two people cannot both move one order.** `saveFulfillment` only stores a change if the order is still in the status the change started from, so the second person is told the order changed instead of overwriting the first.
 
 ## Storefront
 
@@ -446,6 +483,80 @@ classDiagram
 Notes:
 
 - **No aggregate here either.** The published site is derived entirely from the catalog, so this context holds one rule and no data: an older build must never finish after a newer one.
+
+## Activity
+
+Source: `packages/contracts/src/activity.ts`, `backend/src/shared/activity.ts`, `backend/src/activity`.
+
+```mermaid
+classDiagram
+    direction LR
+
+    class Activity {
+        <<Aggregate Root>>
+        +string id
+        +DateTime at
+        +ActivityAction action
+        +string note
+    }
+
+    class Actor {
+        <<Value Object>>
+        owner (email)
+        automation (identity)
+    }
+
+    class ActivitySubject {
+        <<Value Object>>
+        +kind: product or order
+        +string id
+        +string label
+    }
+
+    class ActivityAction {
+        <<enumeration>>
+        product.added
+        product.saved
+        product.removed
+        order.ordered-from-vendor
+        order.shipped
+        order.delivered
+        order.shipment-corrected
+    }
+
+    class ActivityFactory {
+        <<Factory>>
+        +activityFor(change, at) Activity
+    }
+
+    class ActivityService {
+        <<Application Service>>
+        +listRecent(page) Page
+        +listForSubject(kind, id, page) Page
+    }
+
+    class ActivityLog {
+        <<Repository>>
+        +findRecent(page) Page
+        +findForSubject(kind, id, page) Page
+    }
+
+    Activity "1" *-- "1" Actor : actor
+    Activity "1" *-- "1" ActivitySubject : subject
+    Activity --> ActivityAction
+    ActivityFactory ..> Activity : creates
+    ActivityService ..> ActivityLog : uses
+    ActivityLog ..> Activity : reads, never writes
+
+    note for Activity "Invariants:<br/>- written in the same transaction as the<br/>  change it describes, or not at all<br/>- never edited, never removed<br/>- the actor is who API Gateway authenticated,<br/>  never what the caller claims"
+    note for ActivitySubject "The label is the product's name or the<br/>order's number at the time, so an entry still<br/>reads sensibly after a product is removed."
+```
+
+Notes:
+
+- **Who writes it is not in this diagram, on purpose.** `CatalogService` and `OrderService` each build the entry for their own change with `activityFor` and pass it to their own repository alongside the change (`save(product, activity)`, `saveFulfillment(order, from, activity)`). The repository stores both in one transaction (`backend/src/shared/adapters/dynamodb-activity.ts`).
+- **The activity service only reads.** It has no use case that writes, its repository has no method that writes, and its Lambda has no permission to.
+- **A refused change leaves no entry**: a product whose address is taken, a fulfillment step out of order, an order someone else changed first.
 
 ## Domain events
 

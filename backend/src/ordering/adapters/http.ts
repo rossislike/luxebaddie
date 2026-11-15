@@ -1,15 +1,21 @@
-import { fulfillmentStatusSchema, type Order, type Page } from "@luxebaddie/contracts";
-import type { APIGatewayProxyEvent } from "aws-lambda";
-import { z } from "zod";
-import { backOfficeRoutes, type HttpHandler, httpRouter, pathParam } from "../../shared/adapters/api-gateway";
+import {
+  fulfillmentStatusSchema,
+  fulfillmentStepSchema,
+  type Order,
+  type Page,
+  shipmentSchema,
+} from "@luxebaddie/contracts";
+import {
+  actorOf,
+  backOfficeRoutes,
+  type HttpHandler,
+  httpRouter,
+  parseBody,
+  pathParam,
+} from "../../shared/adapters/api-gateway";
+import { pageRequest } from "../../shared/adapters/paging";
 import { invalid } from "../../shared/errors";
 import type { OrderService } from "../application/order-service";
-import type { PageRequest } from "../application/ports";
-
-const DEFAULT_PAGE_SIZE = 25;
-const MAX_PAGE_SIZE = 100;
-
-const pageSizeSchema = z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default(DEFAULT_PAGE_SIZE);
 
 /**
  * Public (order confirmation page):
@@ -17,6 +23,8 @@ const pageSizeSchema = z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default
  * Back office (under /admin and /backoffice, see shared/back-office.ts):
  *   GET /order                            the fulfillment queue: ?fulfillmentStatus= (default unfulfilled), oldest first
  *   GET /order/{id}
+ *   POST /order/{id}/fulfillment-step     move the order one step on: ordered from the vendor, shipped, delivered
+ *   PUT /order/{id}/shipment              correct the carrier or tracking number of an order that is on its way
  *   GET /customer/{email}/order           one customer's orders, newest first
  *
  * Lists are paged: pass ?limit= (default 25, at most 100) and the previous
@@ -39,17 +47,21 @@ export function orderHttpHandler(orders: OrderService): HttpHandler {
         body: { order: await orders.getOrder(pathParam(event, "id")) },
       }),
 
+      "POST /order/{id}/fulfillment-step": async (event) => ({
+        body: {
+          order: await orders.takeFulfillmentStep(pathParam(event, "id"), parseBody(event, fulfillmentStepSchema), actorOf(event)),
+        },
+      }),
+
+      "PUT /order/{id}/shipment": async (event) => ({
+        body: { order: await orders.correctShipment(pathParam(event, "id"), parseBody(event, shipmentSchema), actorOf(event)) },
+      }),
+
       "GET /customer/{email}/order": async (event) => ({
         body: toListResponse(await orders.listForCustomer(pathParam(event, "email"), pageRequest(event))),
       }),
     }),
   });
-}
-
-function pageRequest(event: APIGatewayProxyEvent): PageRequest {
-  const limit = pageSizeSchema.safeParse(event.queryStringParameters?.limit);
-  if (!limit.success) throw invalid(`limit must be a whole number from 1 to ${MAX_PAGE_SIZE}`);
-  return { limit: limit.data, cursor: event.queryStringParameters?.cursor };
 }
 
 const toListResponse = (page: Page<Order>) => ({ orders: page.items, nextCursor: page.nextCursor });

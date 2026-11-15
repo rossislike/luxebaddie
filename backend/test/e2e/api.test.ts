@@ -98,6 +98,26 @@ describe("catalog", () => {
 
   });
 
+  it("adds a product only when its address is free, and never replaces the one that has it", async () => {
+    const addedId = `e2e-added-${run}`;
+    const added: Product = { ...product, id: addedId, status: "draft", variants: [{ ...activeVariant, sku: `E2E-${run.toUpperCase()}-ADDED` }] };
+    const add = (body: Product) => adminFetch(api("/admin/product"), { method: "POST", ...json(body) });
+    try {
+      expect((await add(added)).status).toBe(201);
+
+      const again = await add({ ...added, name: "An impostor" });
+      expect(again.status).toBe(409);
+      expect(((await again.json()) as { message: string }).message).toContain(`already a product at the address "${addedId}"`);
+
+      // The back office reads drafts by id; the storefront cannot.
+      const stored = await adminFetch(api(`/admin/product/${addedId}`));
+      expect(((await stored.json()) as { product: Product }).product).toEqual(added);
+      expect((await fetch(api(`/product/${addedId}`))).status).toBe(404);
+    } finally {
+      await adminFetch(api(`/admin/product/${addedId}`), { method: "DELETE" });
+    }
+  });
+
   it("lists the product in its own category only", async () => {
     // Catalog listings come from an index, which catches up a moment after a write.
     await eventually(async () => ((await idsIn("/product?category=wigs")).includes(product.id) ? true : null));
@@ -360,6 +380,86 @@ describe("checkout to order", () => {
       expect(await fetchOrder()).toEqual(original);
       const forThisCheckout = (await fetchUnfulfilled()).filter((order) => order.checkoutSessionId === checkoutSessionId);
       expect(forThisCheckout).toHaveLength(1);
+    });
+
+    describe("and the order is fulfilled", () => {
+      const usps = { carrier: "USPS", trackingNumber: `E2E${run.toUpperCase()}` };
+      const send = (method: string, path: string, body: unknown) =>
+        adminFetch(api(`/admin/order/${confirmation.id}${path}`), { method, ...json(body) });
+      const takeStep = (step: unknown) => send("POST", "/fulfillment-step", step);
+      const orderOf = async (response: Response) => ((await response.json()) as { order: Order }).order;
+      const queued = async (status: string) =>
+        (await adminGet<OrderList>(`/admin/order?fulfillmentStatus=${status}&limit=100`)).orders.some((o) => o.id === confirmation.id);
+
+      it("refuses to skip a step", async () => {
+        const skipped = await takeStep({ step: "shipped", shipment: usps });
+
+        expect(skipped.status).toBe(409);
+        expect(((await skipped.json()) as { message: string }).message).toContain("has not been ordered from the vendor yet");
+        expect((await fetchOrder()).fulfillmentStatus).toBe("unfulfilled");
+      });
+
+      it("refuses a step it does not know, and a shipment without a tracking number", async () => {
+        const unknown = await takeStep({ step: "teleported" });
+        const noTracking = await takeStep({ step: "shipped", shipment: { carrier: "USPS", trackingNumber: " " } });
+
+        expect([unknown.status, noTracking.status]).toEqual([400, 400]);
+      });
+
+      it("moves the order to the next queue when it is ordered from the vendor", async () => {
+        const ordered = await orderOf(await takeStep({ step: "ordered-from-vendor", vendorOrderReference: `V-${run}` }));
+
+        expect(ordered).toMatchObject({ fulfillmentStatus: "processing", vendorOrderReference: `V-${run}` });
+        expect(ordered.orderedFromVendorAt).not.toBeNull();
+        // The queues are an index, which catches up a moment after the write.
+        await eventually(async () => ((await queued("processing")) && !(await queued("unfulfilled")) ? true : null));
+      });
+
+      it("records the carrier and tracking number when it ships", async () => {
+        const shipped = await orderOf(await takeStep({ step: "shipped", shipment: usps }));
+
+        expect(shipped).toMatchObject({ fulfillmentStatus: "shipped", shipment: usps });
+        expect(await fetchOrder()).toEqual(shipped);
+      });
+
+      it("lets the tracking be corrected while the order is on its way", async () => {
+        const ups = { carrier: "UPS", trackingNumber: `1Z${run.toUpperCase()}` };
+        const corrected = await orderOf(await send("PUT", "/shipment", ups));
+
+        expect(corrected).toMatchObject({ fulfillmentStatus: "shipped", shipment: ups });
+      });
+
+      it("ends with the order delivered, and nothing can move it after that", async () => {
+        const delivered = await orderOf(await takeStep({ step: "delivered" }));
+        const backwards = await takeStep({ step: "ordered-from-vendor", vendorOrderReference: null });
+        const lateCorrection = await send("PUT", "/shipment", usps);
+
+        expect(delivered.fulfillmentStatus).toBe("delivered");
+        expect(delivered.deliveredAt).not.toBeNull();
+        expect([backwards.status, lateCorrection.status]).toEqual([409, 409]);
+        expect(await fetchOrder()).toEqual(delivered);
+      });
+
+      it("has every step in the order's history, newest first, with what was typed in", async () => {
+        type Entry = { action: string; note: string | null; actor: { kind: string } };
+        const history = await eventually(async () => {
+          const { activity } = await adminGet<{ activity: Entry[] }>(`/admin/activity/order/${confirmation.id}`);
+          return activity.length === 4 ? activity : null;
+        });
+
+        expect(history.map((entry) => [entry.action, entry.note])).toEqual([
+          ["order.delivered", null],
+          ["order.shipment-corrected", `UPS 1Z${run.toUpperCase()}`],
+          ["order.shipped", `USPS E2E${run.toUpperCase()}`],
+          ["order.ordered-from-vendor", `Vendor order V-${run}`],
+        ]);
+        // The refused steps above (a skipped step, a step backwards) left no entry.
+        expect(history.every((entry) => entry.actor.kind === "automation")).toBe(true);
+      });
+
+      it("leaves what was bought exactly as it was", async () => {
+        expect(await fetchOrder()).toMatchObject({ items: checkout.items, totalCents: 10_795, email: customerEmail });
+      });
     });
   });
 });

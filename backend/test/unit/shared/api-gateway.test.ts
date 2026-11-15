@@ -1,7 +1,7 @@
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
-import { allowedOrigin, backOfficeRoutes, header, httpRouter, parseBody } from "../../../src/shared/adapters/api-gateway";
+import { actorOf, allowedOrigin, backOfficeRoutes, header, httpRouter, parseBody } from "../../../src/shared/adapters/api-gateway";
 import { conflict, notFound } from "../../../src/shared/errors";
 
 const request = (overrides: Partial<APIGatewayProxyEvent>): APIGatewayProxyEvent =>
@@ -25,6 +25,34 @@ const router = httpRouter({
 afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
+});
+
+describe("actorOf", () => {
+  const called = (requestContext: object) => request({ resource: "/backoffice/thing", requestContext } as Partial<APIGatewayProxyEvent>);
+
+  it("names the signed-in owner by the email in their verified sign-in token", () => {
+    const event = called({ authorizer: { claims: { email: "owner@example.com", sub: "abc" } }, identity: {} });
+
+    expect(actorOf(event)).toEqual({ kind: "owner", email: "owner@example.com" });
+  });
+
+  it("names an AWS-signed caller by its identity, without the account number", () => {
+    const user = called({ identity: { userArn: "arn:aws:iam::123456789012:user/devAdmin" } });
+    const role = called({ identity: { userArn: "arn:aws:sts::123456789012:assumed-role/luxebaddie-dev-github-e2e/GitHubActions" } });
+
+    expect(actorOf(user)).toEqual({ kind: "automation", identity: "user/devAdmin" });
+    expect(actorOf(role)).toEqual({ kind: "automation", identity: "assumed-role/luxebaddie-dev-github-e2e/GitHubActions" });
+  });
+
+  it("takes nothing from what the caller says about themselves", () => {
+    const event = { ...called({ identity: { userArn: "arn:aws:iam::123456789012:user/devAdmin" } }), headers: { "x-actor": "owner@example.com" } };
+
+    expect(actorOf(event as APIGatewayProxyEvent)).toEqual({ kind: "automation", identity: "user/devAdmin" });
+  });
+
+  it("refuses to guess when API Gateway identified nobody", () => {
+    expect(() => actorOf(called({ identity: {} }))).toThrow(/without an authenticated caller/);
+  });
 });
 
 describe("backOfficeRoutes", () => {

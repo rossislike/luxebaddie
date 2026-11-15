@@ -8,6 +8,7 @@ import { NodejsFunction, type NodejsFunctionProps } from "aws-cdk-lib/aws-lambda
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
+import { ACTIVITY_PARTITION } from "../src/table/activity-item";
 import { GSI1, GSI2 } from "../src/table/schema";
 import { itemsWithKeyPrefix } from "./database";
 import { secretParameterNames, type StageConfig } from "./stage-config";
@@ -31,6 +32,8 @@ export class LbMicroservices extends Construct {
   public readonly basketMicroservice: NodejsFunction;
   public readonly paymentMicroservice: NodejsFunction;
   public readonly orderingMicroservice: NodejsFunction;
+  /** Reads the activity log of back-office changes. It cannot write to it. */
+  public readonly activityMicroservice: NodejsFunction;
   /** Starts storefront rebuilds. Given its build project by an LbSiteBuild. */
   public readonly storefrontMicroservice: NodejsFunction;
   /** The same code, deployed a second time to rebuild the back office. Given its build project by an LbSiteBuild. */
@@ -98,10 +101,19 @@ export class LbMicroservices extends Construct {
         }),
       );
 
+    /**
+     * The activity log is the one part of the table more than one service
+     * writes to: each service that makes a back-office change adds the entry
+     * for it, in the same transaction as the change. They may add entries and
+     * nothing else: no service that writes the log can read, alter or delete it.
+     */
+    const allowRecordingActivity = (fn: NodejsFunction) => allowItems(fn, ["PutItem"], [ACTIVITY_PARTITION]);
+
     // Product microservice: the catalog.
     this.productMicroservice = createFunction("product", { TABLE_NAME: table.tableName });
     allowItems(this.productMicroservice, ["GetItem", "PutItem", "DeleteItem"], ["PRODUCT#"]);
     allowIndexQuery(this.productMicroservice, GSI1, ["CATALOG"]);
+    allowRecordingActivity(this.productMicroservice);
 
     // The product service's second Lambda. It has no table access: its only
     // input is the change stream, its only output the event bus.
@@ -135,9 +147,15 @@ export class LbMicroservices extends Construct {
 
     // Ordering microservice: turns CheckoutCompleted events into orders.
     this.orderingMicroservice = createFunction("ordering", { TABLE_NAME: table.tableName });
-    allowItems(this.orderingMicroservice, ["GetItem", "PutItem"], ["ORDER#"]);
+    allowItems(this.orderingMicroservice, ["GetItem", "PutItem", "UpdateItem"], ["ORDER#"]);
     allowIndexQuery(this.orderingMicroservice, GSI1, ["CUSTOMER#"]);
     allowIndexQuery(this.orderingMicroservice, GSI2, ["FULFILLMENT#"]);
+    allowRecordingActivity(this.orderingMicroservice);
+
+    // Activity microservice: the log of back-office changes, read-only.
+    this.activityMicroservice = createFunction("activity", { TABLE_NAME: table.tableName });
+    allowItems(this.activityMicroservice, ["Query"], [ACTIVITY_PARTITION]);
+    allowIndexQuery(this.activityMicroservice, GSI1, [`${ACTIVITY_PARTITION}#`]);
 
     // Storefront microservice: rebuilds the static storefront when it goes out of date.
     this.storefrontMicroservice = createFunction("storefront", {});

@@ -33,8 +33,11 @@ flowchart LR
             category([Browse one category])
             product([View a product and choose a variant])
             listAll([List every product, drafts included])
+            openProduct([Open any product, draft or for sale])
+            addProduct([Add a product])
             saveProduct([Create or replace a product])
             removeProduct([Remove a product])
+            photos([Upload a product photo])
         end
 
         subgraph basketCtx["Basket"]
@@ -60,10 +63,18 @@ flowchart LR
             queue([View the fulfillment queue])
             oneOrder([Look up an order by number])
             byCustomer([List a customer's orders by email])
+            step([Move an order one fulfillment step on])
+            fixTracking([Correct an order's tracking])
         end
 
         subgraph storefrontCtx["Storefront"]
             rebuild([Rebuild and publish the site])
+        end
+
+        subgraph activityCtx["Activity"]
+            recent([See what was changed, by whom and when])
+            history([See the history of one product or order])
+            record([Record a back-office change])
         end
     end
 
@@ -76,16 +87,28 @@ flowchart LR
 
     admin --- signIn
     admin --- listAll
+    admin --- openProduct
+    admin --- addProduct
     admin --- saveProduct
     admin --- removeProduct
+    admin --- photos
     admin --- queue
     admin --- oneOrder
     admin --- byCustomer
+    admin --- step
+    admin --- fixTracking
+    admin --- recent
+    admin --- history
 
     checkout --- stripe
     stripe --- notify
     deploy --- rebuild
 
+    addProduct -. include .-> record
+    saveProduct -. include .-> record
+    removeProduct -. include .-> record
+    step -. include .-> record
+    fixTracking -. include .-> record
     category -. extend .-> browse
     viewBag -. include .-> priceBag
     changeBag -. include .-> priceBag
@@ -112,13 +135,21 @@ flowchart LR
 | (event) | Empty the paid bag | Basket | `CheckoutCompleted` | Safe to repeat |
 | Admin | Sign in to the back office | Back-office access | Amazon Cognito | By invitation only. Password, then a code from an authenticator app, every time. A session lasts 12 hours |
 | Admin | List every product, drafts included | Catalog | `GET /admin/product` | |
+| Admin | Open any product, draft or for sale | Catalog | `GET /admin/product/{id}` | |
+| Admin | Add a product | Catalog | `POST /admin/product` | Refused if another product already has its id, which is its address in the shop |
 | Admin | Create or replace a product | Catalog | `PUT /admin/product/{id}` | The whole product is replaced. SKUs unique, options consistent |
 | Admin | Remove a product | Catalog | `DELETE /admin/product/{id}` | |
+| Admin | Upload a product photo | Catalog | `POST /admin/product-photo`, then a form post to storage | JPEG, PNG or WebP, at most 5 MB. The photo joins a product when the product is saved with its address |
 | Admin | View the fulfillment queue | Ordering | `GET /admin/order` | By fulfillment status, oldest first, paged |
 | Admin | Look up an order by number | Ordering | `GET /admin/order/{id}` | |
 | Admin | List a customer's orders by email | Ordering | `GET /admin/customer/{email}/order` | Newest first, paged |
+| Admin | Move an order one fulfillment step on | Ordering | `POST /admin/order/{id}/fulfillment-step` | Ordered from the vendor, then shipped (carrier and tracking number required), then delivered. A step out of order is refused with the reason. Never backwards |
+| Admin | Correct an order's tracking | Ordering | `PUT /admin/order/{id}/shipment` | Only while the order is on its way |
 
 Every Admin route above also exists under `/backoffice` in place of `/admin`, for example `GET /backoffice/order`. The `/admin` copy accepts AWS-signed requests and the `/backoffice` copy accepts the signed-in owner's token; behind either, the use case is the same one.
+| Admin | See what was changed, by whom and when | Activity | `GET /admin/activity` | Newest first, paged. Read-only: there is no route that writes or erases |
+| Admin | See the history of one product or order | Activity | `GET /admin/activity/{kind}/{id}` | Kept after a product is removed |
+| (every Admin change) | Record a back-office change | Activity | part of the change itself | Stored in the same transaction as the change. A refused change records nothing |
 | Admin, Deployment | Rebuild and publish the site | Storefront | `CatalogChanged`, or a finished deployment | One build at a time. A failed build leaves the previous site up and raises an alarm |
 
 ## The purchase, as one goal
@@ -172,13 +203,8 @@ flowchart LR
     subgraph system["LuxeBaddie (planned)"]
         direction TB
 
-        subgraph catalogCtx["Catalog"]
-            photos([Upload product photos])
-        end
-
         subgraph orderingCtx["Ordering"]
-            status([Change an order's fulfillment status])
-            tracking([Add tracking to an order])
+            tracking([Receive tracking from the vendor])
             forward([Forward a paid order to the vendor])
             refund([Keep an order in step with a refund or dispute])
         end
@@ -200,9 +226,6 @@ flowchart LR
         end
     end
 
-    admin --- photos
-    admin --- status
-    admin --- tracking
     admin --- report
     forward --- vendor
     vendor --- tracking
@@ -223,6 +246,6 @@ flowchart LR
 How these would fit the model:
 
 - **The back-office screens** are a new client of the existing Admin use cases, not new use cases. Sign-in is built; the screens are not.
-- **Fulfillment** adds the first behavior that changes an `Order` after it is created, so the allowed status transitions become a domain rule in the ordering context.
+- **Vendor forwarding and tracking** automate two steps the Admin takes by hand today: marking an order as ordered from the vendor, and entering its tracking number. They would call the same fulfillment steps.
 - **Notifications, reporting and vendor forwarding** each subscribe to events with their own queue, the way ordering and basket subscribe to `CheckoutCompleted` today. They need an `OrderPlaced` event published from the table's change stream (sketched in `backend/DATA-MODEL.md`). `CheckoutPaymentFailed` already exists and has no subscriber yet.
 - **Customer accounts** introduce a `Customer` aggregate. Today a customer is only the email on an order.

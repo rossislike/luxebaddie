@@ -1,3 +1,4 @@
+import type { Actor } from "@luxebaddie/contracts";
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { z } from "zod";
 import { BACK_OFFICE_PREFIXES } from "../back-office";
@@ -62,6 +63,27 @@ function errorResponse(routeKey: string, error: unknown): Pick<APIGatewayProxyRe
 function corsHeaders(event: APIGatewayProxyEvent): Record<string, string> {
   const origin = allowedOrigin(event);
   return origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {};
+}
+
+/**
+ * Who is calling a back-office route, as API Gateway established it before the
+ * Lambda ran: the signed-in owner (their email comes from the verified sign-in
+ * token), or the AWS identity that signed the request. Nothing here is taken
+ * from what the caller says about themselves.
+ */
+export function actorOf(event: APIGatewayProxyEvent): Actor {
+  const email = event.requestContext.authorizer?.claims?.email;
+  if (typeof email === "string" && email !== "") return { kind: "owner", email };
+
+  const signedBy = event.requestContext.identity?.userArn;
+  if (signedBy) return { kind: "automation", identity: awsIdentityName(signedBy) };
+
+  throw new Error(`Back-office route ${event.resource} was reached without an authenticated caller`);
+}
+
+/** "arn:aws:iam::123456789012:user/devAdmin" as "user/devAdmin": the name without the account it lives in. */
+function awsIdentityName(arn: string): string {
+  return arn.split(":").slice(5).join(":") || arn;
 }
 
 /** The storefront the browser called from, if it is one of ours. Undefined for any other caller. */

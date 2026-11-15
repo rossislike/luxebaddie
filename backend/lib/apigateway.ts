@@ -26,6 +26,7 @@ interface LbApiGatewayProps {
   basketMicroservice: IFunction;
   paymentMicroservice: IFunction;
   orderingMicroservice: IFunction;
+  activityMicroservice: IFunction;
 }
 
 /**
@@ -83,6 +84,7 @@ export class LbApiGateway extends Construct {
     this.addBasketRoutes(new LambdaIntegration(props.basketMicroservice));
     this.addPaymentRoutes(new LambdaIntegration(props.paymentMicroservice));
     this.addOrderRoutes(new LambdaIntegration(props.orderingMicroservice));
+    this.addActivityRoutes(new LambdaIntegration(props.activityMicroservice));
   }
 
   /** Adds one back-office route under both of its doors, e.g. ("GET", "/product") as /admin/product and /backoffice/product. */
@@ -110,8 +112,11 @@ export class LbApiGateway extends Construct {
     product.addResource("{id}").addMethod("GET", integration); // GET /product/{id}
 
     this.addBackOfficeRoute("GET", "/product", integration);
+    this.addBackOfficeRoute("POST", "/product", integration);
+    this.addBackOfficeRoute("GET", "/product/{id}", integration);
     this.addBackOfficeRoute("PUT", "/product/{id}", integration);
     this.addBackOfficeRoute("DELETE", "/product/{id}", integration);
+    this.addBackOfficeRoute("POST", "/product-photo", integration);
   }
 
   private addBasketRoutes(integration: LambdaIntegration) {
@@ -127,12 +132,20 @@ export class LbApiGateway extends Construct {
     this.api.root.addResource("payment").addResource("webhook").addMethod("POST", integration);
   }
 
+  private addActivityRoutes(integration: LambdaIntegration) {
+    this.addBackOfficeRoute("GET", "/activity", integration);
+    // The changes to one product or one order.
+    this.addBackOfficeRoute("GET", "/activity/{kind}/{id}", integration);
+  }
+
   private addOrderRoutes(integration: LambdaIntegration) {
     // GET /order/session/{sessionId} - the order confirmation page
     this.api.root.addResource("order").addResource("session").addResource("{sessionId}").addMethod("GET", integration);
 
     this.addBackOfficeRoute("GET", "/order", integration); // ?fulfillmentStatus=
     this.addBackOfficeRoute("GET", "/order/{id}", integration);
+    this.addBackOfficeRoute("POST", "/order/{id}/fulfillment-step", integration);
+    this.addBackOfficeRoute("PUT", "/order/{id}/shipment", integration);
     // One customer's orders, for support.
     this.addBackOfficeRoute("GET", "/customer/{email}/order", integration);
   }

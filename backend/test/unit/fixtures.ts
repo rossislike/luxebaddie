@@ -1,4 +1,7 @@
-import type { CheckoutCompleted, Product } from "@luxebaddie/contracts";
+import type { Actor, CheckoutCompleted, Product } from "@luxebaddie/contracts";
+
+/** The signed-in owner, as the back-office routes identify her. */
+export const owner: Actor = { kind: "owner", email: "owner@example.com" };
 
 export const wig: Product = {
   id: "test-wig",
