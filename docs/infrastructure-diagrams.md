@@ -4,7 +4,7 @@ What runs where: the AWS pieces that make up one stage of LuxeBaddie, how they c
 
 The other documents in this folder describe the domain and stop at the repository interface. This one starts there: it shows the deployed resources, not the business rules. It is drawn from the CDK code in `backend/lib`, which is the source of truth. Each diagram names the files it was drawn from.
 
-Everything inside the "AWS" box is one CloudFormation stack per stage, named `LuxeBaddie-<stage>` (`backend/bin`, `backend/lib/luxebaddie-stack.ts`). Only `dev` exists today. A stage is a fully separate copy: its own table, queues, API, storefront and Stripe sandbox.
+Everything inside the "AWS" box is one CloudFormation stack per stage, named `LuxeBaddie-<stage>` (`backend/bin`, `backend/lib/luxebaddie-stack.ts`). Only `dev` exists today. A stage is a fully separate copy: its own table, queues, API, storefront and Stripe sandbox. The one thing kept outside that stack is the pair of roles GitHub deploys and previews the stage with, in `LuxeBaddie-<stage>-DeployAccess` (diagram 5).
 
 Arrow styles are the same in every diagram:
 
@@ -93,6 +93,7 @@ Access is enforced by the infrastructure, not by convention.
 | Internet to `POST /payment/webhook` | Only from Stripe's published addresses, and then only with a valid Stripe signature | Resource policy deny (`lib/stripe-webhook-ips.ts`), then signature check in the payment service |
 | A service to the table | Only items whose key starts with its own prefix. Basket may also read products | IAM conditions on `dynamodb:LeadingKeys` |
 | A service to a secret | Only its own parameters | IAM grants per parameter (checked by `test/unit/stack.test.ts`) |
+| GitHub Actions to AWS | Only this repository, and each role only from the kind of run it is for. Credentials last an hour at most; no key is stored | Each role's trust policy, matching the repository and run in GitHub's token exactly (diagram 5) |
 | Browser to other origins | Only the site itself and the stage's API | Content-Security-Policy written into each page by the build |
 
 ## 2. Inside the backend
@@ -312,38 +313,80 @@ Logs are kept for one month in `dev` (six months where `retainData` is on). Clou
 
 ## 5. How changes get to AWS
 
-Source: `.github/workflows/ci.yml`, `backend/lib/storefront-build.ts`, the scripts in `backend/package.json`.
+Source: `.github/workflows/ci.yml`, `.github/workflows/infrastructure-diff.yml`, `.github/workflows/deploy.yml`, `backend/lib/github-actions.ts`, `backend/lib/deploy-access-stack.ts`, `backend/lib/end-to-end-test-access.ts`, `backend/lib/storefront-build.ts`, `backend/scripts/wait-for-storefront.ts`.
 
 ```mermaid
 flowchart LR
-    owner(["Store owner's laptop"])
+    owner(["Store owner"])
 
     subgraph github["GitHub"]
         pr["Pull request to main"]
-        ci["GitHub Actions CI<br/>typecheck, lint, unit tests,<br/>CDK build, secret scan"]
+        ci["CI<br/>typecheck, lint, unit tests,<br/>CDK build, secret scan"]
+        diff["Infrastructure diff<br/>comments what would change"]
+        merge["Merge to main"]
+        checks["Deploy: checks again<br/>on the merged result"]
+        deploy["Deploy: cdk deploy,<br/>then wait for the storefront<br/>(dev environment, main only)"]
+        e2e["Deploy: end-to-end tests"]
     end
 
-    subgraph aws["AWS: LuxeBaddie-dev"]
-        cfn["CloudFormation stack"]
-        source[("S3: storefront source<br/>uploaded by CDK")]
-        rebuildQueue["SQS storefront rebuild queue"]
-        codebuild["CodeBuild storefront build"]
-        site["S3 site bucket and CloudFront"]
+    subgraph aws["AWS"]
+        sts["STS<br/>swaps GitHub's token for<br/>credentials that expire in an hour"]
+        previewRole["Role: github-preview<br/>read dev's template"]
+        deployRole["Role: github-deploy<br/>use the CDK's deploy roles"]
+        testRole["Role: github-e2e<br/>what the tests do"]
+
+        subgraph stage["LuxeBaddie-dev"]
+            cfn["CloudFormation stack"]
+            source[("S3: storefront source<br/>uploaded by CDK")]
+            rebuildQueue["SQS storefront rebuild queue"]
+            codebuild["CodeBuild storefront build"]
+            site["S3 site bucket and CloudFront"]
+            api["API, event bus, table"]
+        end
     end
 
     owner -- "pushes a branch" --> pr
     pr --> ci
-    owner -. "pnpm deploy:dev (CDK)" .-> cfn
-    owner -. "CDK uploads the storefront source" .-> source
+    pr --> diff
+    owner -- "merges once CI is green" --> merge
+    merge --> checks --> deploy --> e2e
+
+    diff -. "token: a pull request" .-> sts
+    deploy -. "token: environment dev" .-> sts
+    e2e -. "token: branch main" .-> sts
+    sts -.-> previewRole
+    sts -.-> deployRole
+    sts -.-> testRole
+
+    previewRole -- "reads the template" --> cfn
+    deployRole -- "deploys" --> cfn
+    deployRole -- "uploads the storefront source" --> source
     cfn -- "deployment finished" --> rebuildQueue
     rebuildQueue -- "via the storefront Lambda" --> codebuild
     source --> codebuild
-    codebuild -- "publishes" --> site
+    codebuild -- "publishes, with the time<br/>the build started" --> site
+    deploy -- "waits for a build newer<br/>than the deployment" --> site
+    testRole -- "exercises" --> api
+    e2e -- "checks" --> site
 ```
 
-- **CI has no access to AWS or Stripe.** It only checks the change. Nothing merges to `main` until every job passes.
-- **Deploying is a manual CDK command today.** The backend and the storefront hosting are deployed together, and the storefront then rebuilds itself from the source that was just deployed.
+- **Merging is the deploy.** Every push to `main` runs the checks again on the merged result, deploys the backend and the storefront's hosting to `dev`, waits for the storefront to be rebuilt, and then runs the end-to-end tests against the live stage. One run at a time, and a run that has started is never cancelled.
+- **No AWS key is stored in GitHub.** For each job GitHub issues a short-lived token that describes the run: which repository, and which branch, environment or pull request. AWS swaps it for credentials that expire within the hour, and only for the role whose conditions the run meets exactly (OpenID Connect).
+- **Three roles, one per job.**
+
+  | Role | Which runs can use it | What it can do | Defined in |
+  | --- | --- | --- | --- |
+  | `luxebaddie-dev-github-preview` | Pull requests from branches of this repository | Read `dev`'s CloudFormation template. Nothing else | `lib/deploy-access-stack.ts` |
+  | `luxebaddie-dev-github-deploy` | Jobs in the `dev` GitHub environment, which only accepts the `main` branch | Use the roles `cdk bootstrap` created to deploy, and read the stack's status and events | `lib/deploy-access-stack.ts` |
+  | `luxebaddie-dev-github-e2e` | Jobs on the `main` branch | Read the stack's outputs, call the `/admin` routes, publish a `CheckoutCompleted` event, delete order items, and see whether the Stripe parameters exist | `lib/end-to-end-test-access.ts` |
+
+- **The pipeline cannot change who the pipeline is.** The preview and deploy roles live in their own stack, `LuxeBaddie-dev-DeployAccess`, which is deployed by hand once per stage and which no workflow deploys.
+- **A pull request gets as little as possible**, because it runs code nobody has reviewed yet. Its comparison is template against template, which needs nothing but read access to one stack. Pull requests from forks and from Dependabot cannot sign in at all.
+- **Deploying is still administrator-level.** CloudFormation makes the changes with the role `cdk bootstrap` created for it, which can do anything in this account. So anything merged to `main` can change anything in the account: the ruleset on `main` is the guard. Narrowing this is part of the production account decision in [ROADMAP.md](../ROADMAP.md).
+- **Stripe is outside the pipeline.** No workflow reads or writes a Stripe key. Connecting a stage to Stripe stays the manual step in diagram 3. The test role can see that the parameters exist, never their values.
+- **The deploy job is only done when the storefront is.** A deployment starts a storefront build and returns. Each build writes the time it started to `/build.json` on the site, and the job waits until the live site carries a time later than the deployment's end. If the build fails, the job fails and the previous site stays up.
 - **The site is only ever published by the build.** There is no "upload the site" command, so what is live always matches the deployed source and the current catalog.
+- **Workflow logs are public**, because the repository is. The AWS account number is kept as a GitHub secret so it is masked in them, and it is removed from the pull request comment before posting. It is the only AWS detail GitHub stores.
 
 ## Not built yet
 
@@ -351,8 +394,8 @@ These are planned in [ROADMAP.md](../ROADMAP.md) and are deliberately absent fro
 
 | Planned piece | Where it will appear |
 | --- | --- |
-| Automatic deploys from GitHub Actions, signing in to AWS with a short-lived role (OIDC) | Diagram 5: an arrow from GitHub to CloudFormation, replacing the manual deploy |
-| A `prod` stage with live restricted Stripe keys, backups on and an alarm email | A second stack, identical in shape to `dev` |
+| A `prod` stage with live restricted Stripe keys, backups on and an alarm email | A second stack, identical in shape to `dev`, without the end-to-end test role |
+| A production deploy that waits for approval in GitHub, with its own deploy role | Diagram 5: a `prod` environment and role next to the `dev` ones |
 | A custom domain with its certificate and DNS | Diagram 1: in front of CloudFront |
 | A web application firewall, or a CloudFront flat-rate plan | Diagram 1: in front of CloudFront |
 | A dedicated KMS key for the `prod` Stripe parameters, and an alarm on unexpected reads of them | Diagram 3 (recommended, not yet on the roadmap) |
@@ -360,4 +403,4 @@ These are planned in [ROADMAP.md](../ROADMAP.md) and are deliberately absent fro
 
 ## Keeping this current
 
-When a change touches a construct in `backend/lib`, the setup script, or the CI workflow, update the matching diagram and table here in the same pull request. `backend/lib/luxebaddie-stack.ts` is the quickest way to check diagrams 1 and 2: every construct it creates should appear, and nothing else.
+When a change touches a construct in `backend/lib`, the setup script, or a workflow in `.github/workflows`, update the matching diagram and table here in the same pull request. `backend/lib/luxebaddie-stack.ts` is the quickest way to check diagrams 1 and 2: every construct it creates should appear, and nothing else.

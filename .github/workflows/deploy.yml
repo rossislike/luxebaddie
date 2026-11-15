@@ -1,0 +1,95 @@
+# Puts every change that reaches main live on dev, then checks that dev still
+# works: checks -> deploy -> end-to-end tests.
+#
+# GitHub signs in to AWS without a stored key. For each job it issues a
+# short-lived token describing the run (this repository, this branch or
+# environment), and AWS exchanges it for credentials that expire within the
+# hour, but only for the role whose conditions the run meets. The roles are
+# defined in backend/lib/deploy-access-stack.ts and
+# backend/lib/end-to-end-test-access.ts.
+#
+# Stripe is not part of this. Connecting a stage to Stripe is a manual step
+# (README, "Working on it"), so no Stripe key ever passes through a workflow.
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  # Run the pipeline again for main without a new commit: Actions -> Deploy -> Run workflow.
+  workflow_dispatch:
+
+# One run at a time. A run that has started always finishes, because stopping
+# a deployment halfway is worse than waiting for it. If several merges queue up
+# behind it, only the newest runs next: it contains the others.
+concurrency:
+  group: deploy-dev
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  checks:
+    name: Checks
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    name: Deploy to dev
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    # The deploy role only accepts jobs that declare this environment, and the
+    # environment only accepts the main branch.
+    environment:
+      name: dev
+      url: ${{ steps.storefront.outputs.url }}
+    permissions:
+      contents: read
+      id-token: write # lets the job ask GitHub for the token it signs in to AWS with
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/install
+      - name: Sign in to AWS as the dev deployer
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/luxebaddie-dev-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+      # If the deployment fails, CloudFormation puts the previous version back.
+      - name: Deploy the backend and the storefront's hosting
+        run: pnpm deploy:dev
+      # The deployment starts a storefront build. The site is not up to date,
+      # and this job is not done, until that build has published.
+      - name: Wait for the rebuilt storefront to be live
+        run: pnpm --filter @luxebaddie/backend storefront:wait:dev
+      - name: Link the deployment to the storefront
+        id: storefront
+        run: echo "url=$(jq --raw-output '."LuxeBaddie-dev".StorefrontUrl' backend/cdk-outputs.dev.json)" >> "$GITHUB_OUTPUT"
+
+  end-to-end:
+    name: End-to-end tests on dev
+    needs: deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/install
+      # A separate role from the deployer: it can do what the tests do and nothing more.
+      - name: Sign in to AWS as the dev tester
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/luxebaddie-dev-github-e2e
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+      - name: Run the end-to-end tests against dev
+        run: pnpm test:e2e

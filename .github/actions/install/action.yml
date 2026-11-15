@@ -1,0 +1,15 @@
+# The first steps of every job that runs this repository's code, after checkout.
+name: Install
+description: Sets up Node and pnpm, then installs exactly the dependencies in the lockfile.
+
+runs:
+  using: composite
+  steps:
+    - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        # Matches the Lambda runtime in backend/lib/microservices.ts.
+        node-version: "24"
+        cache: pnpm
+    - run: pnpm install --frozen-lockfile
+      shell: bash

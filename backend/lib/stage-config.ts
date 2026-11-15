@@ -15,6 +15,12 @@ export type StageConfig = {
    * no tax and reports no error.
    */
   stripeAutomaticTax: boolean;
+  /**
+   * Let GitHub Actions run the end-to-end tests against this stage after each
+   * deployment (lib/end-to-end-test-access.ts). The tests create and remove
+   * products and orders, so this stays off for production.
+   */
+  endToEndTestAccess: boolean;
   /** Receives CloudWatch alarm emails. Optional. */
   alarmEmail?: string;
 };
@@ -25,10 +31,11 @@ const stages: Record<string, StageConfig> = {
     localStorefrontOrigins: ["http://localhost:3000"],
     retainData: false,
     stripeAutomaticTax: false,
+    endToEndTestAccess: true,
   },
   // prod is added when the domain is registered (see ROADMAP.md). It must set
-  // retainData: true, leave localStorefrontOrigins empty, and serve the
-  // storefront from the real domain.
+  // retainData: true, leave localStorefrontOrigins empty, turn
+  // endToEndTestAccess off, and serve the storefront from the real domain.
 };
 
 export function stageConfigFor(stage: string): StageConfig {
@@ -37,6 +44,16 @@ export function stageConfigFor(stage: string): StageConfig {
     throw new Error(`Unknown stage "${stage}". Configured stages: ${Object.keys(stages).join(", ")}`);
   }
   return config;
+}
+
+/** The CloudFormation stacks that make up a stage. */
+export function stackNames(stage: string) {
+  return {
+    /** The store itself: backend, storefront hosting and monitoring (lib/luxebaddie-stack.ts). */
+    store: `LuxeBaddie-${stage}`,
+    /** The roles GitHub Actions deploys the store with (lib/deploy-access-stack.ts). */
+    deployAccess: `LuxeBaddie-${stage}-DeployAccess`,
+  };
 }
 
 /**

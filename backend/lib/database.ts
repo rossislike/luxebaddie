@@ -48,3 +48,12 @@ export class LbDatabase extends Construct {
     }
   }
 }
+
+/**
+ * IAM condition for a grant on the table: every partition key the request
+ * touches must start with one of the prefixes. This is what confines a service
+ * to its own items.
+ */
+export function itemsWithKeyPrefix(prefixes: string[]) {
+  return { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": prefixes.map((prefix) => `${prefix}*`) } };
+}

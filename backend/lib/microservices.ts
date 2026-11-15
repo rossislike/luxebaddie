@@ -9,6 +9,7 @@ import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { StringParameter } from "aws-cdk-lib/aws-ssm";
 import { Construct } from "constructs";
 import { GSI1, GSI2 } from "../src/table/schema";
+import { itemsWithKeyPrefix } from "./database";
 import { secretParameterNames, type StageConfig } from "./stage-config";
 
 interface LbMicroservicesProps {
@@ -83,7 +84,7 @@ export class LbMicroservices extends Construct {
         new PolicyStatement({
           actions: actions.map((action) => `dynamodb:${action}`),
           resources: [table.tableArn],
-          conditions: leadingKeys(keyPrefixes),
+          conditions: itemsWithKeyPrefix(keyPrefixes),
         }),
       );
     const allowIndexQuery = (fn: NodejsFunction, indexName: string, partitionPrefixes: string[]) =>
@@ -91,7 +92,7 @@ export class LbMicroservices extends Construct {
         new PolicyStatement({
           actions: ["dynamodb:Query"],
           resources: [`${table.tableArn}/index/${indexName}`],
-          conditions: leadingKeys(partitionPrefixes),
+          conditions: itemsWithKeyPrefix(partitionPrefixes),
         }),
       );
 
@@ -139,9 +140,4 @@ export class LbMicroservices extends Construct {
     // Storefront microservice: rebuilds the static storefront when it goes out of date.
     this.storefrontMicroservice = createFunction("storefront", {});
   }
-}
-
-/** IAM condition: every partition key the request touches must start with one of the prefixes. */
-function leadingKeys(prefixes: string[]) {
-  return { "ForAllValues:StringLike": { "dynamodb:LeadingKeys": prefixes.map((prefix) => `${prefix}*`) } };
 }

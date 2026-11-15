@@ -33,6 +33,10 @@ An online store for wigs, weaves and lashes, built to run with as little manual 
    CodeBuild: builds the site from the catalog ─► uploads to S3 ─► clears CloudFront's cache
 
  CloudWatch: alarms (dead-letter queues, Lambda errors, API and storefront 5xx, failed builds), one dashboard, X-Ray traces
+
+ Getting changes there:
+   pull request ─► CI checks, and a comment showing what it would change on AWS
+   merge to main ─► GitHub Actions ─► deploys dev (CDK) ─► waits for the rebuilt storefront ─► end-to-end tests
 ```
 
 A purchase, step by step:
@@ -61,7 +65,8 @@ A catalog change, step by step:
 | `backend/src/<service>` | One folder per microservice, each laid out as ports and adapters (below). |
 | `backend/src/table` | The single table's key formats and item mappers. The only place that builds a key. |
 | `backend/DATA-MODEL.md` | The data model: entities, keys, and the request behind every access pattern. |
-| `backend/scripts` | Seed the catalog, connect a stage to Stripe. |
+| `backend/scripts` | Seed the catalog, connect a stage to Stripe, wait for the storefront to catch up with a deployment. |
+| `.github/workflows` | The checks on every pull request, the infrastructure comparison, and the deploy pipeline. |
 | `docs` | The domain model in UML: class, sequence, activity and use case diagrams for each bounded context. Start at [docs/README.md](docs/README.md). The deployed AWS pieces and their connections to Stripe are in [docs/infrastructure-diagrams.md](docs/infrastructure-diagrams.md). |
 | `web` | The storefront. |
 
@@ -85,7 +90,7 @@ Use cases are tested with in-memory fakes, so the business rules run without AWS
 - **No circuit breaker.** The only third-party dependency on a request path is Stripe at checkout. It fails fast (4 second timeout) and Lambda has no shared thread pool to exhaust, so a breaker would add state without adding protection. Revisit if synchronous service-to-service calls are introduced.
 - **One DynamoDB table holds everything** (single-table design): products, baskets and orders, arranged so every read is a single-item lookup or one contiguous range, never a scan. The model is documented in [backend/DATA-MODEL.md](backend/DATA-MODEL.md); read it before touching keys.
 - **Services still own their data.** IAM lets each Lambda touch only items whose key starts with its own prefix. The basket service has read-only access to products for pricing, which avoids a synchronous call to the product service.
-- **Secrets** (Stripe keys) live encrypted in SSM Parameter Store, never in code, environment variables or templates. A pre-commit hook (`.githooks/pre-commit`) refuses commits that contain a Stripe key, and CI scans every commit for leaked keys of any kind.
+- **Secrets** (Stripe keys) live encrypted in SSM Parameter Store, never in code, environment variables, templates or GitHub. A pre-commit hook (`.githooks/pre-commit`) refuses commits that contain a Stripe key, and CI scans every commit for leaked keys of any kind.
 - **When a service must both save data and publish an event**, it only saves, and the event is published from the table's change stream (`backend/lib/change-feed.ts`), so the two can never disagree. `CatalogChanged` works this way today; a future `OrderPlaced` should too.
 - **One storefront build at a time.** Two builds running together could finish in the wrong order and leave the older catalog live. The build project refuses a second build; the request waits in the queue and is retried, which also guarantees a build that starts after the last change.
 
@@ -142,10 +147,15 @@ Prerequisites: Node 22+, pnpm, AWS credentials for the account, and the account 
 pnpm install
 
 # Backend
-pnpm deploy:dev          # deploy the dev stage to AWS (backend and storefront hosting; the storefront rebuilds itself afterwards)
-pnpm seed:dev            # load the placeholder catalog
 pnpm test                # unit tests (no AWS needed)
-pnpm test:e2e            # end-to-end tests against the deployed dev stage, API and hosted storefront (wait a minute after a deploy; takes a few minutes)
+pnpm seed:dev            # load the placeholder catalog
+pnpm test:e2e            # end-to-end tests against the deployed dev stage, API and hosted storefront (takes a few minutes)
+
+# Deploying by hand. Merging to main does all of this for you (see "After the merge" below);
+# these are for trying a branch on dev before it is merged. The next merge replaces it.
+pnpm deploy:dev                                         # deploy the dev stage to AWS (backend and storefront hosting)
+pnpm --filter @luxebaddie/backend storefront:wait:dev   # wait until the storefront has been rebuilt from what was just deployed
+pnpm --filter @luxebaddie/backend diff:dev              # what the branch would change on AWS, without deploying
 
 # Look at real data by access pattern (run without a pattern to list them)
 pnpm --filter @luxebaddie/backend db dev catalog wigs
@@ -184,12 +194,69 @@ CI (`.github/workflows/ci.yml`) runs on every pull request and needs no AWS or S
 | CDK build | Bundles the Lambdas and builds the `dev` CloudFormation template | `pnpm --filter @luxebaddie/backend synth` |
 | Secret scan | gitleaks over every commit, with the rules in `.gitleaks.toml` | `gitleaks git .` |
 
+A second workflow (`.github/workflows/infrastructure-diff.yml`) comments on the pull request with what merging it would change on AWS: the resources it would add, remove or modify in `dev`, compared with what is deployed there now. The comment is updated as the pull request changes. It is there to be read before merging; it does not block the merge.
+
 A ruleset on `main` blocks the merge until the "CI passed" check is green, and blocks direct pushes, force pushes and deleting the branch. It applies to everyone, repository admins included. The ruleset is kept in `.github/rulesets/main.json`; GitHub does not read that file, so after editing it apply it with:
 
 ```bash
 gh api repos/rossislike/luxebaddie/rulesets --jq '.[] | select(.name == "main") | .id'   # find the ruleset id
 gh api --method PUT repos/rossislike/luxebaddie/rulesets/<id> --input .github/rulesets/main.json
 ```
+
+### After the merge: automatic deploys to `dev`
+
+Merging is the deploy. `.github/workflows/deploy.yml` runs on every push to `main`:
+
+| Stage | What it does |
+| --- | --- |
+| Checks | The same checks as the pull request, on the merged result |
+| Deploy to dev | Deploys the backend and the storefront's hosting with CDK, then waits until the storefront has been rebuilt from the new source and is live |
+| End-to-end tests on dev | Runs `pnpm test:e2e` against the live API and storefront |
+
+Runs go one at a time, and a run that has started is never cancelled. To run the pipeline again without a new commit, use "Run workflow" on the Deploy workflow in the Actions tab, or `gh workflow run deploy.yml`.
+
+When something fails:
+
+- **A check fails:** nothing is deployed.
+- **The deployment fails:** CloudFormation puts the previous version back, and the storefront is rebuilt from it.
+- **The storefront build fails:** the deploy job fails after waiting 15 minutes. The backend is on the new version and the previous site stays up.
+- **An end-to-end test fails:** `dev` stays on the new version, which is now known to be broken. Nothing is rolled back for you: fix it with another pull request.
+
+**How GitHub gets into AWS.** No AWS key is stored in GitHub. For each job, GitHub issues a short-lived token saying which repository the job belongs to and which branch, environment or pull request it runs for. AWS swaps that token for credentials that expire within the hour, and only for a role whose conditions the run meets exactly (this is OpenID Connect, OIDC). There are three roles, one per job:
+
+| Role | Which runs can use it | What it can do |
+| --- | --- | --- |
+| `luxebaddie-dev-github-preview` | Pull requests from branches of this repository | Read `dev`'s CloudFormation template. Nothing else |
+| `luxebaddie-dev-github-deploy` | Jobs in the `dev` GitHub environment, which only accepts the `main` branch | Deploy, through the roles `cdk bootstrap` created, and read the stack's status |
+| `luxebaddie-dev-github-e2e` | Jobs on the `main` branch | What the end-to-end tests do: call the admin routes, publish a `CheckoutCompleted` event, delete the test orders |
+
+Worth knowing:
+
+- **Whoever can merge to `main` can change anything in the AWS account.** CDK deploys through a CloudFormation role with administrator rights, which is its standard setup. The ruleset on `main` is what guards it. Production should not share that: see the production account decision in ROADMAP.md.
+- **Stripe is not part of the pipeline.** No workflow reads or writes a Stripe key, and none of the three roles is allowed to read one. Connecting a stage to Stripe stays the manual step above.
+- **The workflow logs are public**, because the repository is. The AWS account number is stored as a GitHub secret (`AWS_ACCOUNT_ID`) so GitHub masks it in the logs. It is not a credential, and it is the only AWS detail GitHub holds.
+- **Pull requests from forks and from Dependabot get no infrastructure comment.** GitHub gives them no way to sign in to AWS, which is the point.
+
+The pipeline for a stage is set up once. For `dev` this is done; the steps are here for the next stage, or for rebuilding this one:
+
+```bash
+# 1. AWS: trust GitHub's token service. Once per AWS account; skip it if the first command already lists it.
+aws iam list-open-id-connect-providers
+aws iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com
+
+# 2. AWS: the deploy and preview roles (backend/lib/deploy-access-stack.ts). No workflow deploys this stack.
+pnpm --filter @luxebaddie/backend deploy-access:dev
+
+# 3. GitHub: the environment the deploy job runs in, open to the main branch only
+gh api --method PUT repos/rossislike/luxebaddie/environments/dev --input - \
+  <<< '{"deployment_branch_policy": {"protected_branches": false, "custom_branch_policies": true}}'
+gh api --method POST repos/rossislike/luxebaddie/environments/dev/deployment-branch-policies -f name=main -f type=branch
+
+# 4. GitHub: the AWS account number, so workflows can name the roles (it asks for the value)
+gh secret set AWS_ACCOUNT_ID
+```
+
+The roles only accept this repository under its current name and owner (`backend/lib/github-actions.ts`). After renaming or transferring it, update the value there and repeat step 2, and deploy the stage once by hand for the test role.
 
 Admin routes (`/admin/*`) accept only requests signed with AWS credentials. They cover the catalog, the fulfillment queue (`/admin/order`), a single order, and one customer's orders by email (`/admin/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. `backend/scripts/lib/aws.ts` has a ready-made signed `fetch`.
 

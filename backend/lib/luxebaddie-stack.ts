@@ -3,6 +3,7 @@ import type { Construct } from "constructs";
 import { LbApiGateway } from "./apigateway";
 import { LbChangeFeed } from "./change-feed";
 import { LbDatabase } from "./database";
+import { LbEndToEndTestAccess } from "./end-to-end-test-access";
 import { LbEventBus } from "./eventbus";
 import { LbMicroservices } from "./microservices";
 import { LbMonitoring } from "./monitoring";
@@ -97,6 +98,15 @@ export class LuxeBaddieStack extends Stack {
       changeFeedDeadLetterQueues: { catalog: catalogChangeFeed.deadLetterQueue },
       storefront: { distribution: storefrontHosting.distribution, build: storefrontBuild.project },
     });
+
+    if (config.endToEndTestAccess) {
+      new LbEndToEndTestAccess(this, "EndToEndTestAccess", {
+        config,
+        api: apigateway.api,
+        eventBus: eventBus.bus,
+        table: database.table,
+      });
+    }
 
     new CfnOutput(this, "StorefrontUrl", { value: storefrontHosting.url });
     new CfnOutput(this, "StorefrontBucketName", { value: storefrontHosting.bucket.bucketName });

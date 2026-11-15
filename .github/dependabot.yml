@@ -1,8 +1,10 @@
-# Keeps the commit-pinned actions in .github/workflows up to date.
+# Keeps the commit-pinned actions in .github/workflows and .github/actions up to date.
 version: 2
 updates:
   - package-ecosystem: github-actions
-    directory: /
+    directories:
+      - /
+      - /.github/actions/*
     schedule:
       interval: weekly
     groups:
