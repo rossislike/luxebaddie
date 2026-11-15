@@ -1,0 +1,88 @@
+# Shows each pull request what merging it would change on AWS: the resources
+# it would add, remove or modify in dev, compared with what is deployed there
+# now. The result is posted as a comment on the pull request and kept up to
+# date as the pull request changes.
+#
+# This is information for the reviewer, not a gate: it is not one of the
+# checks a pull request needs in order to merge.
+name: Infrastructure diff
+
+on:
+  pull_request:
+
+concurrency:
+  group: infrastructure-diff-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  AWS_REGION: us-east-1
+
+jobs:
+  diff:
+    name: Infrastructure changes
+    # A pull request runs code nobody has reviewed yet, so it signs in to AWS
+    # as a role that can read dev's CloudFormation template and nothing else.
+    # Pull requests from forks and from Dependabot cannot sign in at all (GitHub
+    # gives them no token and no secrets), so there is nothing to show for them.
+    if: github.event.pull_request.head.repo.full_name == github.repository && github.actor != 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write # lets the job ask GitHub for the token it signs in to AWS with
+      pull-requests: write # to post the comment
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/install
+      - name: Sign in to AWS with read-only access to dev's template
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd # v6.3.0
+        with:
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ACCOUNT_ID }}:role/luxebaddie-dev-github-preview
+          aws-region: ${{ env.AWS_REGION }}
+          mask-aws-account-id: true
+      # Compares templates only. The more thorough comparison CDK can make
+      # needs permission to write to AWS, which a pull request does not get.
+      # CDK will note that it could not use its own lookup role and carried on
+      # with this one: that is the intended path here.
+      - name: Compare this pull request with what is deployed
+        run: pnpm --silent --filter @luxebaddie/backend diff:dev --no-change-set --no-color > infrastructure-diff.txt
+      - name: Post the result on the pull request
+        env:
+          AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          # GitHub refuses comments longer than 65,536 characters.
+          COMMENT_LIMIT: 60000
+        run: |
+          # This repository is public and comments are not masked the way logs
+          # are, so the account number is taken out before anything is posted.
+          sed "s/${AWS_ACCOUNT_ID}/<account>/g" infrastructure-diff.txt > diff.txt
+
+          report() {
+            echo "### Infrastructure changes"
+            echo
+            echo "What merging this pull request would change in \`dev\`, compared with what is deployed there now."
+            echo
+            echo '```'
+            cat "$1"
+            echo '```'
+          }
+
+          report diff.txt >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$(wc -c < diff.txt)" -gt "$COMMENT_LIMIT" ]; then
+            head -c "$COMMENT_LIMIT" diff.txt > shortened.txt
+            { report shortened.txt; echo; echo "Cut short. The [full comparison]($RUN_URL) is on the workflow run."; } > comment.md
+          else
+            report diff.txt > comment.md
+          fi
+          # Edits this workflow's previous comment if there is one, so a pull
+          # request carries a single, current comparison.
+          gh pr comment "$PULL_REQUEST" --body-file comment.md --edit-last --create-if-none

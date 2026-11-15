@@ -6,8 +6,10 @@
   "scripts": {
     "cdk": "cdk",
     "synth": "cdk synth -c stage=dev --quiet",
-    "diff:dev": "cdk diff -c stage=dev",
-    "deploy:dev": "cdk deploy -c stage=dev --require-approval never --outputs-file cdk-outputs.dev.json",
+    "diff:dev": "cdk diff LuxeBaddie-dev -c stage=dev",
+    "deploy:dev": "cdk deploy LuxeBaddie-dev -c stage=dev --require-approval never --outputs-file cdk-outputs.dev.json",
+    "deploy-access:dev": "cdk deploy LuxeBaddie-dev-DeployAccess -c stage=dev --require-approval never",
+    "storefront:wait:dev": "tsx scripts/wait-for-storefront.ts dev",
     "seed:dev": "tsx scripts/seed.ts dev",
     "stripe:setup:dev": "tsx scripts/stripe-setup.ts dev",
     "test": "vitest run --project unit",

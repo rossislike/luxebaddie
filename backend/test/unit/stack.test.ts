@@ -345,6 +345,15 @@ describe("storefront build", () => {
     expect(variables.sort()).toEqual(["DISTRIBUTION_ID", "NEXT_PUBLIC_API_URL", "NEXT_PUBLIC_SITE_URL", "SITE_BUCKET"]);
   });
 
+  it("records on the site when each build started, before publishing it", () => {
+    const [project] = Object.values(template.findResources("AWS::CodeBuild::Project"));
+    const commands: string[] = project?.Properties.Source.BuildSpec.split("\n");
+    const lineOf = (text: string) => commands.findIndex((command) => command.includes(text));
+
+    expect(lineOf("web/out/build.json")).toBeGreaterThan(lineOf("pnpm --filter @luxebaddie/web build"));
+    expect(lineOf("web/out/build.json")).toBeLessThan(lineOf("aws s3 sync"));
+  });
+
   it("rebuilds when the catalog changes and when a deployment finishes", () => {
     const catalogChanged = ruleMatching({ source: ["com.luxebaddie.product"], "detail-type": ["CatalogChanged"] });
     const deploymentFinished = ruleMatching({
@@ -378,4 +387,70 @@ describe("storefront build", () => {
   it("raises an alarm when a build fails", () => {
     template.hasResourceProperties("AWS::CloudWatch::Alarm", { MetricName: "FailedBuilds", Namespace: "AWS/CodeBuild" });
   });
+});
+
+describe("end-to-end test access", () => {
+  const testerStatements = () => statementsOf("AWS::IAM::Policy", "EndToEndTestAccessTester");
+  const statement = (sid: string) => testerStatements().find((candidate) => candidate.Sid === sid);
+
+  it("lets only this repository's main branch run the tests", () => {
+    const [role] = Object.values(
+      template.findResources("AWS::IAM::Role", { Properties: { RoleName: "luxebaddie-dev-github-e2e" } }),
+    );
+    const trust = role?.Properties.AssumeRolePolicyDocument.Statement;
+
+    expect(trust).toHaveLength(1);
+    expect(trust[0].Action).toBe("sts:AssumeRoleWithWebIdentity");
+    expect(trust[0].Condition).toEqual({
+      StringEquals: {
+        "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+        "token.actions.githubusercontent.com:sub": "repo:rossislike@111800579/luxebaddie@1458066475:ref:refs/heads/main",
+      },
+    });
+  });
+
+  it("allows what the tests do and nothing more", () => {
+    expect(testerStatements().map((candidate) => [candidate.Sid, candidate.Action])).toEqual([
+      ["FindTheStage", "cloudformation:DescribeStacks"],
+      ["CallTheAdminRoutes", "execute-api:Invoke"],
+      ["AnnounceAPaidCheckout", "events:PutEvents"],
+      ["RemoveTheOrdersItCreated", "dynamodb:DeleteItem"],
+      ["SeeWhetherStripeIsConnected", "ssm:DescribeParameters"],
+    ]);
+  });
+
+  it("reaches the admin routes of this stage's API only", () => {
+    const routes = JSON.stringify(statement("CallTheAdminRoutes")?.Resource);
+
+    expect(routes).toContain('{"Ref":"ApiGatewayapi');
+    expect(routes).toContain('{"Ref":"ApiGatewayapiDeploymentStagedev');
+    expect(routes).toContain('"/*/admin/*"');
+  });
+
+  it("can publish a paid checkout but no other event", () => {
+    expect(statement("AnnounceAPaidCheckout")?.Condition).toEqual({
+      StringEquals: { "events:source": "com.luxebaddie.payment", "events:detail-type": "CheckoutCompleted" },
+    });
+  });
+
+  it("can delete orders but no other item", () => {
+    expect(statement("RemoveTheOrdersItCreated")?.Condition).toEqual({
+      "ForAllValues:StringLike": { "dynamodb:LeadingKeys": ["ORDER#*"] },
+    });
+  });
+
+  it("cannot read a Stripe key", () => {
+    const actions = testerStatements().flatMap((candidate) => candidate.Action);
+
+    expect(actions.filter((action) => action.startsWith("ssm:") || action.startsWith("kms:"))).toEqual(["ssm:DescribeParameters"]);
+  });
+
+  it("does not exist on a stage that turns it off", () => {
+    const stack = new LuxeBaddieStack(new App(), "NoTestAccess", {
+      config: { ...stageConfigFor("dev"), endToEndTestAccess: false },
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+
+    expect(Template.fromStack(stack).findResources("AWS::IAM::Role", { Properties: { RoleName: Match.anyValue() } })).toEqual({});
+  }, 120_000);
 });

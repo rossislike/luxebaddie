@@ -11,7 +11,7 @@
 import { randomUUID } from "node:crypto";
 import { EventBridgeClient, PutEventsCommand } from "@aws-sdk/client-eventbridge";
 import { DeleteCommand } from "@aws-sdk/lib-dynamodb";
-import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
+import { DescribeParametersCommand, SSMClient } from "@aws-sdk/client-ssm";
 import {
   type CheckoutCompleted,
   EVENTS,
@@ -200,11 +200,13 @@ describe("checkout to order", () => {
   });
 
   it("starts a Stripe Checkout session for a basket", async (context) => {
-    const stripeConfigured = await new SSMClient({})
-      .send(new GetParameterCommand({ Name: secretParameterNames(STAGE).basketStripeKey }))
-      .then(() => true)
-      .catch(() => false);
-    if (!stripeConfigured) return context.skip("Stripe is not connected to this stage yet (pnpm stripe:setup:dev)");
+    // Asks whether the key exists without reading it, so running these tests never needs access to a Stripe key.
+    const { Parameters = [] } = await new SSMClient({}).send(
+      new DescribeParametersCommand({
+        ParameterFilters: [{ Key: "Name", Option: "Equals", Values: [secretParameterNames(STAGE).basketStripeKey] }],
+      }),
+    );
+    if (Parameters.length === 0) return context.skip("Stripe is not connected to this stage yet (pnpm stripe:setup:dev)");
 
     const basketId = randomUUID();
     await fetch(api(`/basket/${basketId}`), {

@@ -12,6 +12,7 @@
 import { createHash, randomUUID } from "node:crypto";
 import type { Product } from "@luxebaddie/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { BUILD_STAMP_PATH, type BuildStamp } from "../../lib/build-stamp";
 import { createAdminFetch, getStackOutputs, type StackOutputs } from "../../scripts/lib/aws";
 import { eventually } from "./support";
 
@@ -94,6 +95,14 @@ describe("hosted storefront", () => {
     const direct = await fetch(`https://${outputs.StorefrontBucketName}.s3.amazonaws.com/index.html`);
 
     expect(direct.status).toBe(403);
+  });
+
+  it("says when the build that produced it started", async () => {
+    const response = await page(`/${BUILD_STAMP_PATH}`);
+    const { startedAt } = (await response.json()) as BuildStamp;
+
+    expect(response.status).toBe(200);
+    expect(new Date(startedAt).getTime()).toBeLessThan(Date.now());
   });
 
   it("is allowed to call the API", async () => {

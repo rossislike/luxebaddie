@@ -8,6 +8,7 @@ import type { Function as LambdaFunction } from "aws-cdk-lib/aws-lambda";
 import { LogGroup, RetentionDays } from "aws-cdk-lib/aws-logs";
 import { Asset } from "aws-cdk-lib/aws-s3-assets";
 import { Construct } from "constructs";
+import { BUILD_STAMP_PATH, DEPLOYMENT_FINISHED_STATUSES } from "./build-stamp";
 import type { LbQueue } from "./queue";
 import type { StageConfig } from "./stage-config";
 import type { LbStorefrontHosting } from "./storefront-hosting";
@@ -140,13 +141,16 @@ export class LbStorefrontBuild extends Construct {
         detailType: ["CloudFormation Stack Status Change"],
         detail: {
           "stack-id": [Stack.of(this).stackId],
-          "status-details": { status: ["CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"] },
+          "status-details": { status: DEPLOYMENT_FINISHED_STATUSES },
         },
       },
       targets: [new SqsQueue(rebuildQueue.queue, { deadLetterQueue: rebuildQueue.deadLetterQueue })],
     });
   }
 }
+
+/** Writes the build stamp into the built site. CodeBuild provides its start time in milliseconds. */
+const RECORD_BUILD_START = `node -e 'require("fs").writeFileSync("web/out/${BUILD_STAMP_PATH}", JSON.stringify({ startedAt: new Date(Number(process.env.CODEBUILD_START_TIME)).toISOString() }))'`;
 
 /**
  * The build itself. A phase stops at its first failing command, so nothing is
@@ -171,6 +175,8 @@ function publishStorefront(): BuildSpec {
         commands: [
           // Reads the catalog from the API and writes the static site to web/out.
           "pnpm --filter @luxebaddie/web build",
+          // Records when this build started, on the site itself (lib/build-stamp.ts).
+          RECORD_BUILD_START,
 
           // 1. New hashed files first: pages only ever point at files that already exist.
           `aws s3 sync web/out/_next/static ${site}/_next/static --cache-control "${CACHE_FOREVER}" --no-progress`,

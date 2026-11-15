@@ -6,13 +6,15 @@ The living plan for getting LuxeBaddie from idea to a store that takes money and
 
 Legend: `[x]` done · `[~]` in progress · `[ ]` not started · **(you)** needs you, it cannot be done from code
 
-_Last updated: 2026-11-14_
+_Last updated: 2026-11-15_
 
 ## Where we are
 
 **Phase 1 of 6.** The store's engine is built and running on AWS in a `dev` environment, and it has taken its first test payment: on 2026-11-14 a test card was charged $156.95 through Stripe and an order was created automatically about three seconds later. The storefront is now online too, at a temporary address: https://d2dc32zxkhz4om.cloudfront.net. It shows the placeholder catalog, runs on Stripe's test mode, and no real money can move. It is reachable by anyone who has the link, but nothing points to it.
 
-**Next up:** automatic deploys, so merging a change publishes it without anyone running a command.
+Changes now publish themselves: merging a change puts it live on `dev` and tests it there, with nobody running a command.
+
+**Next up:** a mobile pass on every page, since most ad traffic will be on phones.
 
 **Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
 
@@ -53,7 +55,13 @@ The machinery: a site customers can buy from and a backend that records what the
   - Checked on the live site: browsing, adding to the bag and reaching Stripe's checkout all work. A full paid test purchase through the hosted site has not been repeated yet
 - [x] Diagrams of how the store works (`docs/`): what the business concepts are, who can do what, and how a purchase and a catalog change flow through the system, step by step. Drawn from the code, so they show what is built, with planned features marked as planned (2026-11-14)
 - [x] Infrastructure diagrams (`docs/infrastructure-diagrams.md`): every AWS piece the store runs on, how they connect, where the Stripe keys are kept and who can read them, what happens when something fails, and how changes get deployed. Pieces that are planned but not built are listed separately (2026-11-14)
-- [ ] Automatic deploys to `dev` (GitHub Actions + CDK): merging to `main` deploys the backend and the storefront, then runs the end-to-end tests against it. GitHub signs in to AWS with a short-lived role (OIDC), so no AWS keys are stored in GitHub. Each pull request shows what infrastructure it would change. Stripe setup stays a manual, once-per-environment step so Stripe keys never pass through the pipeline
+- [x] Automatic deploys to `dev` (GitHub Actions + CDK) (2026-11-15):
+  - Merging to `main` re-runs the checks, deploys the backend and the storefront, waits until the rebuilt storefront is actually live, then runs the end-to-end tests against it. One deploy at a time, in order
+  - GitHub signs in to AWS with a short-lived role (OIDC), so no AWS keys are stored in GitHub. There are three roles, each usable by one kind of job only: one to deploy (from `main` only), one to run the tests, and one that lets a pull request look at what is deployed and nothing more
+  - Each pull request gets a comment showing what infrastructure it would change
+  - Stripe setup stays a manual, once-per-environment step, so Stripe keys never pass through the pipeline. None of the pipeline's roles can read a Stripe key
+  - If a deploy fails, AWS puts the previous version back. If the tests fail afterwards, nothing is undone automatically: the run shows red and the fix is another change
+  - Good to know: anything merged to `main` can change anything in this AWS account, which is how the deploy tool works by default. The rule that every change needs a passing pull request is the guard. This is one more reason to give production its own AWS account (see Phase 2)
 - [ ] Mobile pass on every page (most ad traffic will be on phones)
 
 ## Phase 2 - Business setup
@@ -71,7 +79,7 @@ Things only the business owner can decide or sign. These can run in parallel wit
 - [ ] **(you)** Decide store policies: shipping times, returns and exchanges (worn or opened hair and lashes are normally final sale for hygiene), order cancellation
 - [ ] **(you)** Sales tax: confirm with a tax advisor where you must collect. Then in Stripe Tax set the head office address, choose the product tax code for hair goods from Stripe's list, and add a registration for each place you are registered. Only after that do we switch tax collection on; without a registration Stripe collects nothing and gives no warning
 - [ ] **(you)** Business bank account and bookkeeping for the LLC, if not already set up
-- [ ] Decide whether production runs in this AWS account or a dedicated one for the business
+- [ ] Decide whether production runs in this AWS account or a dedicated one for the business. A dedicated account is the cleaner choice: it is the only way to guarantee the `dev` pipeline cannot touch production
 
 ## Phase 3 - Launch readiness
 
@@ -86,7 +94,7 @@ Turning the working engine into a store that is ready for real customers.
 - [ ] Production environment: restricted live Stripe keys, real domain, data backups on, alarm emails to you
 - [ ] Point the real domain at the storefront: certificate, DNS, and tell browsers to always use HTTPS for the domain (HSTS preload)
 - [ ] Decide how to shield the storefront from floods and bots before ads start: a web application firewall on the CDN (a monthly fee plus a per-request charge) or one of CloudFront's flat-rate plans (firewall included, no surprise bills from traffic spikes, but fewer logging options on the free tier)
-- [ ] Production deploy pipeline: the same build that passed on `dev` is promoted to production only after you approve it in GitHub, followed by an automatic check that the live store still works. Production gets its own deploy role, so the `dev` pipeline can never touch it
+- [ ] Production deploy pipeline: the same build that passed on `dev` is promoted to production only after you approve it in GitHub, followed by an automatic check that the live store still works. Production gets its own deploy role, with narrower rights than the `dev` one, so the `dev` pipeline can never touch it
 - [ ] Refunds and disputes: keep orders in step when a payment is refunded or charged back in Stripe
 - [ ] Tell the shopper when a pay-later payment is declined after checkout (the `CheckoutPaymentFailed` event already exists)
 - [ ] Walk through Stripe's go-live checklist
