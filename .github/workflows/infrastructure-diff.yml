@@ -47,8 +47,8 @@ jobs:
           mask-aws-account-id: true
       # Compares templates only. The more thorough comparison CDK can make
       # needs permission to write to AWS, which a pull request does not get.
-      # CDK will note that it could not use its own lookup role and carried on
-      # with this one: that is the intended path here.
+      # CDK notes that it could not use its own lookup role and carried on
+      # with this one. That is the intended path here.
       - name: Compare this pull request with what is deployed
         run: pnpm --silent --filter @luxebaddie/backend diff:dev --no-change-set --no-color > infrastructure-diff.txt
       - name: Post the result on the pull request
@@ -63,7 +63,9 @@ jobs:
         run: |
           # This repository is public and comments are not masked the way logs
           # are, so the account number is taken out before anything is posted.
-          sed "s/${AWS_ACCOUNT_ID}/<account>/g" infrastructure-diff.txt > diff.txt
+          # So are CDK's two notes about its lookup role, which say nothing
+          # about the change.
+          sed -e '/cdk-[a-z0-9]*-lookup-role/d' -e "s/${AWS_ACCOUNT_ID}/<account>/g" infrastructure-diff.txt > diff.txt
 
           report() {
             echo "### Infrastructure changes"
