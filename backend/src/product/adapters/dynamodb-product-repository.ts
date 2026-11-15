@@ -1,3 +1,4 @@
+import { ConditionalCheckFailedException } from "@aws-sdk/client-dynamodb";
 import { DeleteCommand, type DynamoDBDocumentClient, GetCommand, PutCommand, paginateQuery } from "@aws-sdk/lib-dynamodb";
 import type { Product } from "@luxebaddie/contracts";
 import { CATALOG_PARTITION, catalogPrefix, productFromItem, productKey, productToItem } from "../../table/product-item";
@@ -40,6 +41,18 @@ export function dynamoDbProductRepository(ddb: DynamoDBDocumentClient, tableName
     /** Create or replace: an admin saving a product is a deliberate overwrite. */
     async save(product) {
       await ddb.send(new PutCommand({ TableName: tableName, Item: productToItem(product) }));
+    },
+
+    async saveNew(product) {
+      try {
+        await ddb.send(
+          new PutCommand({ TableName: tableName, Item: productToItem(product), ConditionExpression: "attribute_not_exists(PK)" }),
+        );
+        return "created";
+      } catch (error) {
+        if (error instanceof ConditionalCheckFailedException) return "already_exists";
+        throw error;
+      }
     },
 
     async remove(id) {

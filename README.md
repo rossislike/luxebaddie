@@ -153,8 +153,13 @@ Screens so far:
 | Order queues | `/orders?queue=` | One queue per fulfillment status, oldest first, a page at a time. A search box finds an order by its number or a customer by email |
 | An order | `/order?id=` | What was bought, where it goes, a link to the payment in Stripe, and the one fulfillment step that can be taken next |
 | A customer's orders | `/customer?email=` | Everything bought with one email address, newest first |
+| Catalog | `/catalog` | Every product by category, in the shop's order, drafts included |
+| Add a product | `/product/new` | A new product, saved as a draft until it is put on sale |
+| A product | `/product?id=` | Edit everything about a product, put it on sale or back to draft, feature it, move it, remove it |
 
-Fulfillment goes one way: ordered from the vendor, then shipped (carrier and tracking number), then delivered. The rule lives in the ordering service (`backend/src/ordering/domain/fulfillment.ts`), not in the screens: the API refuses a step out of order and says why, and the screen shows that reason. Each step asks for a second click, because none can be undone. The catalog screens are next in ROADMAP.md.
+Fulfillment goes one way: ordered from the vendor, then shipped (carrier and tracking number), then delivered. The rule lives in the ordering service (`backend/src/ordering/domain/fulfillment.ts`), not in the screens: the API refuses a step out of order and says why, and the screen shows that reason. Each step asks for a second click, because none can be undone.
+
+The product form checks what is typed against the shared product contract (`productSchema` in `packages/contracts`), the same rules the API enforces, and turns each violation into a plain sentence (`backoffice/src/catalog/product-draft.ts`). Adding a product is a separate call from saving one (`POST /product`): it is refused if the address is taken, so a new product can never replace an existing one. Saving a product that is for sale starts the storefront rebuild described above; the shop shows the change a few minutes later.
 
 ## Stripe
 
@@ -302,7 +307,7 @@ The roles only accept this repository under its current name and owner (`backend
 
 ### The back-office routes and who gets in
 
-The back-office functions cover the catalog, the fulfillment queues (`/order?fulfillmentStatus=`), a single order, moving an order one fulfillment step on (`POST /order/{id}/fulfillment-step`), correcting its tracking (`PUT /order/{id}/shipment`), and one customer's orders by email (`/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. Each one is served under two prefixes, and API Gateway checks the caller before any Lambda runs:
+The back-office functions cover the catalog (list, read one, add, replace, remove), the fulfillment queues (`/order?fulfillmentStatus=`), a single order, moving an order one fulfillment step on (`POST /order/{id}/fulfillment-step`), correcting its tracking (`PUT /order/{id}/shipment`), and one customer's orders by email (`/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. Each one is served under two prefixes, and API Gateway checks the caller before any Lambda runs:
 
 | Prefix | Who gets in | Used by |
 | --- | --- | --- |

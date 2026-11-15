@@ -44,8 +44,8 @@ export default function HomePage() {
                 testId="waiting-orders"
                 href="/orders"
               />
-              <Figure label="Products for sale" value={String(productsForSale)} testId="products-for-sale" />
-              <Figure label="Draft products" value={String(draftProducts)} testId="draft-products" />
+              <Figure label="Products for sale" value={String(productsForSale)} testId="products-for-sale" href="/catalog" />
+              <Figure label="Draft products" value={String(draftProducts)} testId="draft-products" href="/catalog" />
             </dl>
           )}
         </LoadState>

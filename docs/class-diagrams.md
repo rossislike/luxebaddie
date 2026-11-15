@@ -66,6 +66,8 @@ classDiagram
         +listProductsForSale(category) Product[]
         +getProductForSale(id) Product
         +listAllProducts() Product[]
+        +getProduct(id) Product
+        +addProduct(product) void
         +saveProduct(product) void
         +removeProduct(id) void
     }
@@ -76,6 +78,7 @@ classDiagram
         +findForSale(category) Product[]
         +findAll() Product[]
         +save(product) void
+        +saveNew(product) created or already exists
         +remove(id) void
     }
 

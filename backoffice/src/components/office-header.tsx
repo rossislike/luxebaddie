@@ -8,6 +8,7 @@ import { useOwner } from "@/auth/signed-in-only";
 const sections = [
   { href: "/", label: "Home" },
   { href: "/orders", label: "Orders", alsoCovers: ["/order", "/customer"] },
+  { href: "/catalog", label: "Catalog", alsoCovers: ["/product", "/product/new"] },
 ];
 
 export function OfficeHeader() {

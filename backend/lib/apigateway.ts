@@ -110,6 +110,8 @@ export class LbApiGateway extends Construct {
     product.addResource("{id}").addMethod("GET", integration); // GET /product/{id}
 
     this.addBackOfficeRoute("GET", "/product", integration);
+    this.addBackOfficeRoute("POST", "/product", integration);
+    this.addBackOfficeRoute("GET", "/product/{id}", integration);
     this.addBackOfficeRoute("PUT", "/product/{id}", integration);
     this.addBackOfficeRoute("DELETE", "/product/{id}", integration);
   }

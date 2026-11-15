@@ -33,6 +33,8 @@ flowchart LR
             category([Browse one category])
             product([View a product and choose a variant])
             listAll([List every product, drafts included])
+            openProduct([Open any product, draft or for sale])
+            addProduct([Add a product])
             saveProduct([Create or replace a product])
             removeProduct([Remove a product])
         end
@@ -78,6 +80,8 @@ flowchart LR
 
     admin --- signIn
     admin --- listAll
+    admin --- openProduct
+    admin --- addProduct
     admin --- saveProduct
     admin --- removeProduct
     admin --- queue
@@ -116,6 +120,8 @@ flowchart LR
 | (event) | Empty the paid bag | Basket | `CheckoutCompleted` | Safe to repeat |
 | Admin | Sign in to the back office | Back-office access | Amazon Cognito | By invitation only. Password, then a code from an authenticator app, every time. A session lasts 12 hours |
 | Admin | List every product, drafts included | Catalog | `GET /admin/product` | |
+| Admin | Open any product, draft or for sale | Catalog | `GET /admin/product/{id}` | |
+| Admin | Add a product | Catalog | `POST /admin/product` | Refused if another product already has its id, which is its address in the shop |
 | Admin | Create or replace a product | Catalog | `PUT /admin/product/{id}` | The whole product is replaced. SKUs unique, options consistent |
 | Admin | Remove a product | Catalog | `DELETE /admin/product/{id}` | |
 | Admin | View the fulfillment queue | Ordering | `GET /admin/order` | By fulfillment status, oldest first, paged |

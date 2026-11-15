@@ -98,6 +98,26 @@ describe("catalog", () => {
 
   });
 
+  it("adds a product only when its address is free, and never replaces the one that has it", async () => {
+    const addedId = `e2e-added-${run}`;
+    const added: Product = { ...product, id: addedId, status: "draft", variants: [{ ...activeVariant, sku: `E2E-${run.toUpperCase()}-ADDED` }] };
+    const add = (body: Product) => adminFetch(api("/admin/product"), { method: "POST", ...json(body) });
+    try {
+      expect((await add(added)).status).toBe(201);
+
+      const again = await add({ ...added, name: "An impostor" });
+      expect(again.status).toBe(409);
+      expect(((await again.json()) as { message: string }).message).toContain(`already a product at the address "${addedId}"`);
+
+      // The back office reads drafts by id; the storefront cannot.
+      const stored = await adminFetch(api(`/admin/product/${addedId}`));
+      expect(((await stored.json()) as { product: Product }).product).toEqual(added);
+      expect((await fetch(api(`/product/${addedId}`))).status).toBe(404);
+    } finally {
+      await adminFetch(api(`/admin/product/${addedId}`), { method: "DELETE" });
+    }
+  });
+
   it("lists the product in its own category only", async () => {
     // Catalog listings come from an index, which catches up a moment after a write.
     await eventually(async () => ((await idsIn("/product?category=wigs")).includes(product.id) ? true : null));

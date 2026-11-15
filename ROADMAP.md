@@ -14,9 +14,9 @@ _Last updated: 2026-11-15_
 
 Changes now publish themselves: merging a change puts it live on `dev` and tests it there, with nobody running a command.
 
-The back office is under construction. It is online at its own address, https://d318grcpgtla6f.cloudfront.net, behind a sign-in: an owner account by invitation only, with an authenticator-app code every time. Orders can be worked there from payment to delivery. Products are still managed by running a script with AWS credentials.
+The back office is under construction. It is online at its own address, https://d318grcpgtla6f.cloudfront.net, behind a sign-in: an owner account by invitation only, with an authenticator-app code every time. Orders can be worked there from payment to delivery, and the catalog can be managed there: no script is needed any more.
 
-**Next up:** the back-office screens for managing the catalog, then photo upload and the activity log.
+**Next up:** photo upload for products, then the activity log.
 
 **Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
 
@@ -101,7 +101,16 @@ Where you run the store: a private site, behind a sign-in, for managing products
   - If two people work the same order, the second is told it changed instead of overwriting the first
   - Checked on `dev` in a real browser: one order taken through all three steps
   - Not yet: the customer is not emailed when an order ships. That arrives with the shipping emails in Phase 3
-- [ ] Catalog screens: add and edit a product with its options and prices, keep it as a draft, publish it, set its order on the page, feature it on the home page, remove it (with a confirmation)
+- [x] Catalog screens (2026-11-15):
+  - The whole catalog on one screen, by category, in the order the shop shows it, with drafts marked
+  - Add and edit a product: name, tagline, description, highlights, what shoppers choose between (up to three options, such as Length and Density) and a price for every choice, with an optional "was" price
+  - A new product starts as a draft that only you can see. Switch it to "For sale" to publish it, and back to draft to take it off the shop without losing it
+  - Set its position in its category, and tick a box to feature it on the home page
+  - Stop selling a single choice (a length the vendor ran out of) without removing it
+  - Remove a product, with a second click to confirm. Orders already placed keep their own copy of what was bought
+  - Mistakes are explained in plain words before anything is saved, for example "Row 2: enter a price above zero"
+  - A new product can never overwrite an existing one: its shop address has to be free
+  - The shop updates on its own a few minutes after a product that is for sale is saved
 - [ ] Photo upload: add product photos from the back office. They are stored on AWS and served through the CDN, which is where the Phase 3 photography lands
 - [ ] Activity log: every back-office change is recorded with who made it and when
 

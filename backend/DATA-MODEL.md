@@ -28,6 +28,7 @@ Collected from the API routes, the event consumers, and the near-term roadmap.
 | 3 | Product | List products for sale in one category, by position | storefront build |
 | 4 | Product | List every product, drafts included | admin |
 | 5 | Product | Create or replace a product; delete a product | admin |
+| 5a | Product | Add a product only if its id is free | back office |
 | 6 | Product | Get several products by id | pricing a basket |
 | 7 | Basket | Get a basket by id | bag |
 | 8 | Basket | Replace a basket's lines; delete a basket | bag, after payment |
@@ -82,6 +83,7 @@ GSI2, partition FULFILLMENT#unfulfilled         the work queue, oldest first
 | 3 | Products for sale in a category | GSI1 | Query | `GSI1PK = CATALOG AND begins_with(GSI1SK, "PRODUCT#active#<category>#")` |
 | 4 | Every product | GSI1 | Query | `GSI1PK = CATALOG AND begins_with(GSI1SK, "PRODUCT#")` |
 | 5 | Save / delete product | Main table | PutItem / DeleteItem | Unconditional put: an admin save is a deliberate overwrite |
+| 5a | Add product | Main table | PutItem | Condition `attribute_not_exists(PK)`. A product's id is its address in the shop, so adding one must never replace another |
 | 6 | Several products by id | Main table | BatchGetItem | Up to 100 keys per call; unprocessed keys are re-requested |
 | 7 | Get basket | Main table | GetItem | `PK = SK = BASKET#<basketId>`. Expired baskets are treated as empty even if still stored |
 | 8 | Replace / delete basket | Main table | PutItem / DeleteItem | Unconditional put: the shopper's latest bag overwrites. Sets `TTL` |

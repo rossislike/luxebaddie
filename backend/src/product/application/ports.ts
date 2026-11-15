@@ -10,7 +10,10 @@ export interface ProductRepository {
   findForSale(category?: CategorySlug): Promise<Product[]>;
   /** Every product, drafts included. */
   findAll(): Promise<Product[]>;
+  /** Creates the product, or replaces the one with the same id. */
   save(product: Product): Promise<void>;
+  /** Creates the product unless one with the same id exists. Never overwrites. */
+  saveNew(product: Product): Promise<"created" | "already_exists">;
   remove(id: string): Promise<void>;
 }
 

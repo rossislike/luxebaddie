@@ -19,6 +19,11 @@ export function inMemoryProducts(...initial: Product[]): ProductRepository & Cat
       all().filter((p) => p.status === "active" && (!category || p.category === category)),
     findAll: async () => all(),
     save: async (product) => void products.set(product.id, product),
+    saveNew: async (product) => {
+      if (products.has(product.id)) return "already_exists";
+      products.set(product.id, product);
+      return "created";
+    },
     remove: async (id) => void products.delete(id),
     findProducts: async (ids) => new Map(ids.flatMap((id) => (products.has(id) ? [[id, products.get(id)!]] : []))),
   };
