@@ -14,13 +14,13 @@ _Last updated: 2026-11-15_
 
 Changes now publish themselves: merging a change puts it live on `dev` and tests it there, with nobody running a command.
 
-The back office is built. It is online at its own address, https://d318grcpgtla6f.cloudfront.net, behind a sign-in: an owner account by invitation only, with an authenticator-app code every time. Orders can be worked there from payment to delivery, the catalog and its photos can be managed there, and every change is recorded with who made it and when. No script is needed any more.
+The back office is built. It is online at its own address, https://d318grcpgtla6f.cloudfront.net, behind a sign-in: an owner account by invitation only, with an authenticator-app code every time. Your own owner account is set up and in use. Orders can be worked there from payment to delivery, the catalog and its photos can be managed there, and every change is recorded with who made it and when. No script is needed any more.
 
 Everything in the store is still placeholder or test: the 11 sample products, Stripe's test mode, the temporary addresses. Nothing here can take real money yet. That is what Phases 2 and 3 change.
 
 **Next up:** Phase 3 work that does not wait on a business decision: the policy, contact and FAQ pages as drafts for you to edit, the accessibility pass, SEO basics, and the plain-language guide to the alarms. The rest of Phase 3 needs the vendor and the domain first.
 
-**Waiting on you:** your back-office account (one command, below), and the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
+**Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
 
 ## Decisions made
 
@@ -90,7 +90,7 @@ Where you run the store: a private site, behind a sign-in, for managing products
   - The same security headers as the storefront, checked side by side after every deployment
   - Published the same way as the storefront: rebuilt on its own after every deployment, and a failed rebuild raises an alarm and leaves the previous version up
   - It opens on a home page showing how many orders are waiting and how many products are for sale or in draft. The screens for working orders and managing the catalog are the next items
-- [ ] **(you)** Get your back-office account. Tell me which email address to invite, or run `pnpm --filter @luxebaddie/backend owner:invite:dev you@example.com`. You get an email with a temporary password; at the first sign-in you choose your own password and set up an authenticator app (1Password, Google Authenticator, Authy or similar)
+- [x] **(you)** Your back-office account is set up: invited by email, your own password chosen at the first sign-in, and an authenticator app linked for the sign-in code (2026-11-15)
 - [x] Orders screens (2026-11-15):
   - Four queues that an order moves through: To order, Ordered from vendor, On its way, Delivered. Oldest first, so nothing gets forgotten at the bottom
   - An order's page: what was bought, the address laid out as it goes on a parcel, the totals, the customer, and a link that opens the payment in Stripe
