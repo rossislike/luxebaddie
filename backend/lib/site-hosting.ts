@@ -61,11 +61,12 @@ export class LbSiteHosting extends Construct {
   /** Public address of the site. No trailing slash. */
   public readonly url: string;
   private readonly accessLogSource: CfnDeliverySource;
+  private readonly originAccess: S3OriginAccessControl;
+  private readonly headers: ResponseHeadersPolicy;
 
   constructor(scope: Construct, id: string, props: LbSiteHostingProps) {
     super(scope, id);
     const { config, site } = props;
-    const { account } = Stack.of(this);
 
     // S3 writes the site bucket's own access log into the log bucket. By
     // default the CDK permits that with an ACL; these buckets have ACLs
@@ -89,20 +90,21 @@ export class LbSiteHosting extends Construct {
       serverAccessLogsPrefix: "s3/",
     });
 
-    const originAccess = new S3OriginAccessControl(this, "OriginAccess", { signing: Signing.SIGV4_ALWAYS });
+    this.originAccess = new S3OriginAccessControl(this, "OriginAccess", { signing: Signing.SIGV4_ALWAYS });
+    this.headers = this.securityHeaders(props);
 
     this.distribution = new Distribution(this, "Distribution", {
       comment: `LuxeBaddie ${site.title} (${config.stage})`,
       defaultRootObject: "index.html",
       defaultBehavior: {
-        origin: new PrivateBucketOrigin(this.bucket, originAccess),
+        origin: new PrivateBucketOrigin(this.bucket, this.originAccess),
         viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
         allowedMethods: AllowedMethods.ALLOW_GET_HEAD,
         // Caches by path alone, for as long as each file's Cache-Control allows
         // (set at upload by the build), and compresses with gzip and Brotli.
         cachePolicy: CachePolicy.CACHING_OPTIMIZED,
         compress: true,
-        responseHeadersPolicy: this.securityHeaders(props),
+        responseHeadersPolicy: this.headers,
         functionAssociations: [{ function: this.pageRouter(), eventType: FunctionEventType.VIEWER_REQUEST }],
       },
       // S3 answers 403, not 404, for a file that does not exist when the
@@ -119,20 +121,42 @@ export class LbSiteHosting extends Construct {
     });
     this.url = `https://${this.distribution.distributionDomainName}`;
 
-    // Both conditions together admit exactly one reader: this distribution, in this account.
-    this.bucket.addToResourcePolicy(
+    this.letDistributionRead(this.bucket, "AllowThisDistributionToReadTheSite");
+
+    this.accessLogSource = this.deliverAccessLogs(props, logBucket);
+  }
+
+  /**
+   * Serves another private bucket's files at part of the site's address, e.g.
+   * product photos under "/media/*". The files are served as they are: no
+   * page routing, the same HTTPS and security headers, and only this
+   * distribution can read the bucket. A file is found in the bucket under the
+   * same path it has on the site.
+   */
+  servePrivateBucketAt(pathPattern: string, bucket: Bucket) {
+    this.distribution.addBehavior(pathPattern, new PrivateBucketOrigin(bucket, this.originAccess), {
+      viewerProtocolPolicy: ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
+      allowedMethods: AllowedMethods.ALLOW_GET_HEAD,
+      cachePolicy: CachePolicy.CACHING_OPTIMIZED,
+      compress: true,
+      responseHeadersPolicy: this.headers,
+    });
+    this.letDistributionRead(bucket, "AllowTheSiteDistributionToRead");
+  }
+
+  /** Both conditions together admit exactly one reader: this distribution, in this account. */
+  private letDistributionRead(bucket: Bucket, sid: string) {
+    bucket.addToResourcePolicy(
       new PolicyStatement({
-        sid: "AllowThisDistributionToReadTheSite",
+        sid,
         principals: [new ServicePrincipal("cloudfront.amazonaws.com")],
         actions: ["s3:GetObject"],
-        resources: [this.bucket.arnForObjects("*")],
+        resources: [bucket.arnForObjects("*")],
         conditions: {
-          StringEquals: { "AWS:SourceArn": this.distribution.distributionArn, "AWS:SourceAccount": account },
+          StringEquals: { "AWS:SourceArn": this.distribution.distributionArn, "AWS:SourceAccount": Stack.of(this).account },
         },
       }),
     );
-
-    this.accessLogSource = this.deliverAccessLogs(props, logBucket);
   }
 
   /**

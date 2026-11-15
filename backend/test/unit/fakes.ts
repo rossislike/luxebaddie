@@ -3,7 +3,7 @@ import type { BasketItem, Order, Page, PricedBasket, Product } from "@luxebaddie
 import type { BasketRepository, Catalog, CheckoutGateway } from "../../src/basket/application/ports";
 import type { OrderRepository, PageRequest } from "../../src/ordering/application/ports";
 import type { EventPublisher, PaymentEvent } from "../../src/payment/application/ports";
-import type { ProductRepository } from "../../src/product/application/ports";
+import type { PhotoStore, ProductRepository } from "../../src/product/application/ports";
 import { productToItem } from "../../src/table/product-item";
 
 /** Orders products the way the catalog collection does: by its GSI1 sort key. */
@@ -26,6 +26,19 @@ export function inMemoryProducts(...initial: Product[]): ProductRepository & Cat
     },
     remove: async (id) => void products.delete(id),
     findProducts: async (ids) => new Map(ids.flatMap((id) => (products.has(id) ? [[id, products.get(id)!]] : []))),
+  };
+}
+
+/** Hands out upload permissions for made-up addresses and remembers what was asked for. */
+export function recordingPhotoStore(): PhotoStore & { started: string[] } {
+  const started: string[] = [];
+  return {
+    started,
+    startUpload: async (contentType) => {
+      started.push(contentType);
+      const name = `photo-${started.length}`;
+      return { uploadUrl: "https://uploads.example", fields: { key: name }, photoUrl: `https://shop.example/media/products/${name}` };
+    },
   };
 }
 

@@ -1,4 +1,4 @@
-import type { CatalogChanged, CategorySlug, Product } from "@luxebaddie/contracts";
+import type { CatalogChanged, CategorySlug, PhotoContentType, PhotoUpload, Product } from "@luxebaddie/contracts";
 
 /**
  * Where products are kept. Implemented by an adapter (DynamoDB today).
@@ -15,6 +15,12 @@ export interface ProductRepository {
   /** Creates the product unless one with the same id exists. Never overwrites. */
   saveNew(product: Product): Promise<"created" | "already_exists">;
   remove(id: string): Promise<void>;
+}
+
+/** Where product photos are kept and served from. Implemented by an adapter (S3 behind the storefront's CDN today). */
+export interface PhotoStore {
+  /** Makes room for one new photo and returns the permission to upload it. */
+  startUpload(contentType: PhotoContentType): Promise<PhotoUpload>;
 }
 
 /** Announces catalog changes to the rest of the system. */

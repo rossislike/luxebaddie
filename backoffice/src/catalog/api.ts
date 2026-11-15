@@ -1,4 +1,4 @@
-import type { Product } from "@luxebaddie/contracts";
+import type { PhotoContentType, PhotoUpload, Product } from "@luxebaddie/contracts";
 import { backOfficeFetch } from "@/lib/api";
 
 const productPath = (id: string) => `/product/${encodeURIComponent(id)}`;
@@ -18,3 +18,7 @@ export const saveProduct = (product: Product) => backOfficeFetch<{ product: Prod
 export const removeProduct = (id: string) => backOfficeFetch<null>(productPath(id), { method: "DELETE" });
 
 export const productPage = (id: string) => `/product?id=${encodeURIComponent(id)}`;
+
+/** Permission to upload one photo of the given kind straight to storage. */
+export const startPhotoUpload = async (contentType: PhotoContentType) =>
+  (await backOfficeFetch<{ upload: PhotoUpload }>("/product-photo", { method: "POST", json: { contentType } })).upload;

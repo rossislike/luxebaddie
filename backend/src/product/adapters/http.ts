@@ -1,4 +1,4 @@
-import { categorySlugSchema, productSchema } from "@luxebaddie/contracts";
+import { categorySlugSchema, photoUploadRequestSchema, productSchema } from "@luxebaddie/contracts";
 import { backOfficeRoutes, type HttpHandler, httpRouter, parseBody, pathParam } from "../../shared/adapters/api-gateway";
 import { invalid } from "../../shared/errors";
 import type { CatalogService } from "../application/catalog-service";
@@ -13,6 +13,7 @@ import type { CatalogService } from "../application/catalog-service";
  *   GET    /product/{id}         one product, draft or for sale
  *   PUT    /product/{id}         create or replace a product
  *   DELETE /product/{id}
+ *   POST   /product-photo        permission to upload one product photo
  */
 export function productHttpHandler(catalog: CatalogService): HttpHandler {
   return httpRouter({
@@ -50,6 +51,11 @@ export function productHttpHandler(catalog: CatalogService): HttpHandler {
       "DELETE /product/{id}": async (event) => {
         await catalog.removeProduct(pathParam(event, "id"));
         return { statusCode: 204, body: null };
+      },
+
+      "POST /product-photo": async (event) => {
+        const { contentType } = parseBody(event, photoUploadRequestSchema);
+        return { statusCode: 201, body: { upload: await catalog.startPhotoUpload(contentType) } };
       },
     }),
   });

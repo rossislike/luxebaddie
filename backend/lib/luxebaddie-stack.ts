@@ -8,6 +8,7 @@ import { LbEventBus } from "./eventbus";
 import { LbMicroservices } from "./microservices";
 import { LbMonitoring } from "./monitoring";
 import { LbOwnerSignIn } from "./owner-sign-in";
+import { LbProductPhotos } from "./product-photos";
 import { LbQueue } from "./queue";
 import type { StageConfig } from "./stage-config";
 import { LbSiteBuild, type SiteSource } from "./site-build";
@@ -54,6 +55,13 @@ export class LuxeBaddieStack extends Stack {
       eventBus: eventBus.bus,
       storefrontUrl: storefrontHosting.url,
       allowedOrigins,
+    });
+
+    const productPhotos = new LbProductPhotos(this, "ProductPhotos", {
+      config,
+      storefront: storefrontHosting,
+      uploader: microservices.productMicroservice,
+      uploadOrigins: backOfficeOrigins,
     });
 
     const ownerSignIn = new LbOwnerSignIn(this, "OwnerSignIn", {
@@ -124,6 +132,7 @@ export class LuxeBaddieStack extends Stack {
         NEXT_PUBLIC_SIGN_IN_ISSUER: ownerSignIn.issuer,
         NEXT_PUBLIC_SIGN_IN_CLIENT_ID: ownerSignIn.client.userPoolClientId,
         NEXT_PUBLIC_SIGN_IN_PAGES_URL: ownerSignIn.pagesUrl,
+        NEXT_PUBLIC_PHOTO_UPLOAD_URL: productPhotos.uploadOrigin,
       },
       publisher: microservices.backOfficePublisher,
       rebuildQueue: backOfficeRebuildQueue,
@@ -166,6 +175,7 @@ export class LuxeBaddieStack extends Stack {
         eventBus: eventBus.bus,
         table: database.table,
         ownerUserPool: ownerSignIn.userPool,
+        photoBucket: productPhotos.bucket,
       });
     }
 
@@ -178,6 +188,8 @@ export class LuxeBaddieStack extends Stack {
     new CfnOutput(this, "ApiUrl", { value: apiUrl });
     new CfnOutput(this, "StripeWebhookUrl", { value: `${apiUrl}/payment/webhook` });
     new CfnOutput(this, "EventBusName", { value: eventBus.bus.eventBusName });
+    new CfnOutput(this, "PhotoBucketName", { value: productPhotos.bucket.bucketName });
+    new CfnOutput(this, "PhotoUploadUrl", { value: productPhotos.uploadOrigin });
     new CfnOutput(this, "TableName", { value: database.table.tableName });
     new CfnOutput(this, "OwnerUserPoolId", { value: ownerSignIn.userPool.userPoolId });
     new CfnOutput(this, "OwnerUserPoolClientId", { value: ownerSignIn.client.userPoolClientId });

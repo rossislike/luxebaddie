@@ -18,6 +18,8 @@ export type StackOutputs = {
   BackOfficeBuildProject: string;
   StripeWebhookUrl: string;
   EventBusName: string;
+  PhotoBucketName: string;
+  PhotoUploadUrl: string;
   TableName: string;
   OwnerUserPoolId: string;
   OwnerUserPoolClientId: string;

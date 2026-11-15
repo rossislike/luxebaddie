@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { createCatalogService } from "../../../src/product/application/catalog-service";
-import { inMemoryProducts } from "../fakes";
+import { inMemoryProducts, recordingPhotoStore } from "../fakes";
 import { lashes, wig } from "../fixtures";
 
 const draftWig = { ...wig, id: "draft-wig", status: "draft" as const };
-const service = createCatalogService(inMemoryProducts(lashes, wig, draftWig));
+const service = createCatalogService(inMemoryProducts(lashes, wig, draftWig), recordingPhotoStore());
 
 describe("the storefront's view of the catalog", () => {
   it("lists only products for sale", async () => {
@@ -38,7 +38,7 @@ describe("adding a product", () => {
   const newWig = { ...wig, id: "new-wig", name: "New Wig" };
 
   it("puts it in the catalog", async () => {
-    const catalog = createCatalogService(inMemoryProducts(wig));
+    const catalog = createCatalogService(inMemoryProducts(wig), recordingPhotoStore());
 
     await catalog.addProduct(newWig);
 
@@ -46,7 +46,7 @@ describe("adding a product", () => {
   });
 
   it("is refused when the address is taken, and leaves the product that has it untouched", async () => {
-    const catalog = createCatalogService(inMemoryProducts(wig));
+    const catalog = createCatalogService(inMemoryProducts(wig), recordingPhotoStore());
 
     await expect(catalog.addProduct({ ...newWig, id: wig.id })).rejects.toMatchObject({
       kind: "conflict",
@@ -56,10 +56,34 @@ describe("adding a product", () => {
   });
 
   it("is not what saving does: saving replaces the product with the same address", async () => {
-    const catalog = createCatalogService(inMemoryProducts(wig));
+    const catalog = createCatalogService(inMemoryProducts(wig), recordingPhotoStore());
 
     await catalog.saveProduct({ ...wig, name: "Renamed Wig" });
 
     expect((await catalog.getProduct(wig.id)).name).toBe("Renamed Wig");
+  });
+});
+
+describe("uploading a product photo", () => {
+  it("hands back where to send the file and the address the photo will have", async () => {
+    const photos = recordingPhotoStore();
+    const catalog = createCatalogService(inMemoryProducts(wig), photos);
+
+    const upload = await catalog.startPhotoUpload("image/jpeg");
+
+    expect(upload).toEqual({
+      uploadUrl: "https://uploads.example",
+      fields: { key: "photo-1" },
+      photoUrl: "https://shop.example/media/products/photo-1",
+    });
+    expect(photos.started).toEqual(["image/jpeg"]);
+  });
+
+  it("changes no product: a photo only belongs to one once its address is saved there", async () => {
+    const catalog = createCatalogService(inMemoryProducts(wig), recordingPhotoStore());
+
+    await catalog.startPhotoUpload("image/png");
+
+    expect(await catalog.getProduct(wig.id)).toEqual(wig);
   });
 });

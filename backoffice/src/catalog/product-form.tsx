@@ -3,6 +3,7 @@
 import { CATEGORY_SLUGS, type CategorySlug, type Product } from "@luxebaddie/contracts";
 import { type FormEvent, type ReactNode, useId, useState } from "react";
 import { messageOf } from "@/lib/api";
+import { Photos } from "./photos";
 import { addressFrom, type ProductDraft, productOf } from "./product-draft";
 import { VariantRows } from "./variant-rows";
 
@@ -109,6 +110,10 @@ export function ProductForm({
         <Field label="Highlights" hint="Short selling points, one per line. Up to 12.">
           {(id) => <textarea id={id} className="field" rows={4} value={draft.highlights} onChange={(event) => set("highlights", event.target.value)} />}
         </Field>
+      </Section>
+
+      <Section title="Photos">
+        <Photos images={draft.images} onChange={(images) => set("images", images)} />
       </Section>
 
       <Section title="Options and prices">

@@ -37,6 +37,7 @@ flowchart LR
             addProduct([Add a product])
             saveProduct([Create or replace a product])
             removeProduct([Remove a product])
+            photos([Upload a product photo])
         end
 
         subgraph basketCtx["Basket"]
@@ -84,6 +85,7 @@ flowchart LR
     admin --- addProduct
     admin --- saveProduct
     admin --- removeProduct
+    admin --- photos
     admin --- queue
     admin --- oneOrder
     admin --- byCustomer
@@ -124,6 +126,7 @@ flowchart LR
 | Admin | Add a product | Catalog | `POST /admin/product` | Refused if another product already has its id, which is its address in the shop |
 | Admin | Create or replace a product | Catalog | `PUT /admin/product/{id}` | The whole product is replaced. SKUs unique, options consistent |
 | Admin | Remove a product | Catalog | `DELETE /admin/product/{id}` | |
+| Admin | Upload a product photo | Catalog | `POST /admin/product-photo`, then a form post to storage | JPEG, PNG or WebP, at most 5 MB. The photo joins a product when the product is saved with its address |
 | Admin | View the fulfillment queue | Ordering | `GET /admin/order` | By fulfillment status, oldest first, paged |
 | Admin | Look up an order by number | Ordering | `GET /admin/order/{id}` | |
 | Admin | List a customer's orders by email | Ordering | `GET /admin/customer/{email}/order` | Newest first, paged |
@@ -184,10 +187,6 @@ flowchart LR
     subgraph system["LuxeBaddie (planned)"]
         direction TB
 
-        subgraph catalogCtx["Catalog"]
-            photos([Upload product photos])
-        end
-
         subgraph orderingCtx["Ordering"]
             tracking([Receive tracking from the vendor])
             forward([Forward a paid order to the vendor])
@@ -211,7 +210,6 @@ flowchart LR
         end
     end
 
-    admin --- photos
     admin --- report
     forward --- vendor
     vendor --- tracking

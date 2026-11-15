@@ -16,7 +16,7 @@ Changes now publish themselves: merging a change puts it live on `dev` and tests
 
 The back office is under construction. It is online at its own address, https://d318grcpgtla6f.cloudfront.net, behind a sign-in: an owner account by invitation only, with an authenticator-app code every time. Orders can be worked there from payment to delivery, and the catalog can be managed there: no script is needed any more.
 
-**Next up:** photo upload for products, then the activity log.
+**Next up:** the activity log, which records every back-office change with who made it and when.
 
 **Waiting on you:** the business decisions in Phase 2. Vendor selection is the long pole: it decides the real catalog, prices, shipping times and return policy. Registering the domain is what turns the temporary storefront address into `luxebaddie.com`.
 
@@ -111,7 +111,13 @@ Where you run the store: a private site, behind a sign-in, for managing products
   - Mistakes are explained in plain words before anything is saved, for example "Row 2: enter a price above zero"
   - A new product can never overwrite an existing one: its shop address has to be free
   - The shop updates on its own a few minutes after a product that is for sale is saved
-- [ ] Photo upload: add product photos from the back office. They are stored on AWS and served through the CDN, which is where the Phase 3 photography lands
+- [x] Photo upload (2026-11-15):
+  - Add photos to a product from its page in the back office, several at a time, straight from a phone or a computer. Choose which one is shown first, and remove any of them
+  - Each photo is made ready before it is sent: turned the right way up, shrunk to a size the shop needs (a phone photo is several times too big), and stripped of the hidden details a camera adds, such as where it was taken
+  - Photos are stored on AWS in a private place of their own and served to shoppers through the same fast network as the shop's pages. This is where the Phase 3 photography goes
+  - Only a signed-in owner can upload, only image files (JPEG, PNG, WebP), and only up to 5 MB each. These limits are enforced by the storage itself, not just by the screen
+  - A photo reaches the shop when the product is saved with it, a few minutes later like any other product change
+  - Not included: the shop's product page shows one photo, the first. A gallery of all of a product's photos belongs with the Phase 3 photography. Photos that are uploaded but never used are not cleaned up; they cost a fraction of a cent
 - [ ] Activity log: every back-office change is recorded with who made it and when
 
 ## Phase 2 - Business setup

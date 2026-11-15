@@ -112,7 +112,7 @@ describe("a visitor who is not signed in", () => {
   });
 
   it.each([...SCREENS, ...SIGN_IN_PAGES])(
-    "gets a page at %s that runs only its own scripts and talks only to the API and the sign-in service",
+    "gets a page at %s that runs only its own scripts and talks only to the API, the sign-in service and the photo storage",
     async (path) => {
       const { scriptSources, connectSources, inlineScriptHashes } = pagePolicy(await (await page(path)).text());
 
@@ -124,6 +124,7 @@ describe("a visitor who is not signed in", () => {
         new URL(outputs.ApiUrl).origin,
         new URL(outputs.OwnerSignInIssuer).origin,
         outputs.OwnerSignInPagesUrl,
+        outputs.PhotoUploadUrl,
       ]);
     },
   );

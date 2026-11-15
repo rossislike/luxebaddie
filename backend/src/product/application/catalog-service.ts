@@ -1,10 +1,16 @@
-import type { CategorySlug, Product } from "@luxebaddie/contracts";
+import type { CategorySlug, PhotoContentType, Product } from "@luxebaddie/contracts";
 import { conflict, notFound } from "../../shared/errors";
-import type { ProductRepository } from "./ports";
+import type { PhotoStore, ProductRepository } from "./ports";
 
 /** Catalog use cases. Shoppers only ever see products for sale; admins see everything. */
-export function createCatalogService(products: ProductRepository) {
+export function createCatalogService(products: ProductRepository, photos: PhotoStore) {
   return {
+    /**
+     * Lets the back office upload one product photo. The photo is not part of
+     * any product until its address is saved into that product's images.
+     */
+    startPhotoUpload: (contentType: PhotoContentType) => photos.startUpload(contentType),
+
     listProductsForSale: (category?: CategorySlug) => products.findForSale(category),
 
     async getProductForSale(id: string): Promise<Product> {

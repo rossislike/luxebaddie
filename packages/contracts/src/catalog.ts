@@ -69,6 +69,28 @@ export const productSchema = z
   });
 export type Product = z.infer<typeof productSchema>;
 
+/** The kinds of image file a product photo may be. No SVG: an SVG can carry scripts. */
+export const PHOTO_CONTENT_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
+export type PhotoContentType = (typeof PHOTO_CONTENT_TYPES)[number];
+
+/** The largest photo file accepted. The back office shrinks photos well below this before sending them. */
+export const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+
+export const photoUploadRequestSchema = z.object({ contentType: z.enum(PHOTO_CONTENT_TYPES) });
+
+/**
+ * Permission to upload one photo, straight from the browser to storage. It is
+ * good for a few minutes, for one file of the agreed kind, up to MAX_PHOTO_BYTES.
+ */
+export type PhotoUpload = {
+  /** Where to send the file, as a multipart form post. */
+  uploadUrl: string;
+  /** Form fields to send along, before the file itself. */
+  fields: Record<string, string>;
+  /** The photo's public address once it is uploaded: what goes into a product's `images`. */
+  photoUrl: string;
+};
+
 /** "18\" / 150%" style label for a variant. Empty for single-variant products. */
 export function variantTitle(product: Pick<Product, "optionNames">, variant: Pick<Variant, "options">): string {
   return product.optionNames.map((name) => variant.options[name]).join(" / ");

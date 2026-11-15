@@ -29,6 +29,8 @@ flowchart TB
             siteBucket[("S3 site bucket<br/>private")]
         end
 
+        photoBucket[("S3 photo bucket<br/>private")]
+
         subgraph officeHosting["Back office hosting"]
             officeCloudfront["CloudFront distribution<br/>its own address, HTTPS,<br/>security headers, no search engines"]
             officeBucket[("S3 site bucket<br/>private")]
@@ -54,6 +56,8 @@ flowchart TB
     shopper -- "catalog, bag, checkout,<br/>order confirmation" --> apigw
     shopper -- "pays on Stripe's page" --> stripe
     stripe -- "payment webhooks" --> apigw
+    cloudfront -- "reads /media files" --> photoBucket
+    owner -- "uploads photos with<br/>a signed form" --> photoBucket
     owner -- "pages" --> officeCloudfront
     officeCloudfront -- "reads files" --> officeBucket
     owner -- "back-office routes" --> apigw
@@ -83,6 +87,7 @@ This is the map. Monitoring watches every piece, so its arrows are left out here
 | Piece | AWS service | What it does | Defined in |
 | --- | --- | --- | --- |
 | Storefront hosting | CloudFront, S3 | Serves the static site over HTTPS. The bucket is private and only this distribution can read it. A CloudFront Function maps `/shop` to `shop.html` | `lib/site-hosting.ts`, `lib/site-page-router.js` |
+| Product photos | S3, behind the storefront's CloudFront | A private bucket of product photos, served to shoppers at the storefront's address under `/media/`. The back office uploads to it directly with a signed form the product service issues: one file, an agreed kind, at most 5 MB | `lib/product-photos.ts`, `src/product/adapters/s3-photo-store.ts` |
 | Back office hosting | CloudFront, S3 | The same construct a second time: the owner's private site at its own address, with one more header asking search engines not to list it | `lib/site-hosting.ts`, `lib/site-page-router.js` |
 | API | API Gateway (REST) | One base URL in front of every service. 50 requests a second, bursts of 100. Its resource policy decides who may call which route | `lib/apigateway.ts` |
 | Owner sign-in | Cognito | The store owner's account for the back office, and the sign-in pages Cognito hosts for it. Nobody can register, every sign-in needs a code from an authenticator app, a session lasts 12 hours and one token 15 minutes. A signed-in owner is only ever returned to the back office's own addresses | `lib/owner-sign-in.ts`, `scripts/invite-owner.ts` |
@@ -102,6 +107,7 @@ Access is enforced by the infrastructure, not by convention.
 | Boundary | Rule | Enforced by |
 | --- | --- | --- |
 | Internet to a site bucket | Never directly. Only through that site's CloudFront distribution | Bucket policy naming the one distribution (origin access control) |
+| Internet to the photo bucket | Reading: never directly, only through the storefront's distribution. Writing: only with a signed upload form, which the product service gives a caller of the back-office routes | Bucket policy naming the storefront's distribution; the form's signed conditions, enforced by S3; a CORS rule admitting form posts from the back office's pages only |
 | Internet to the back office's pages | Anyone can fetch the page files, which hold the screens' code and no store data. They show one line, "Taking you to sign-in", until the visitor has signed in | The sign-in check around every screen (`backoffice/src/auth/signed-in-only.tsx`). The data is protected by the `/backoffice` row below |
 | Internet to public API routes | Anyone, rate limited: `GET /product`, `/basket/{id}`, `GET /order/session/{sessionId}` | API Gateway resource policy and stage throttling |
 | Internet to `/admin` routes | Only AWS identities in this account with permission to invoke them, with signed requests (SigV4) | IAM authorization on each admin method |
@@ -426,7 +432,6 @@ These are planned in [ROADMAP.md](../ROADMAP.md) and are deliberately absent fro
 | A custom domain with its certificate and DNS | Diagram 1: in front of CloudFront |
 | A web application firewall, or a CloudFront flat-rate plan | Diagram 1: in front of CloudFront |
 | A dedicated KMS key for the `prod` Stripe parameters, and an alarm on unexpected reads of them | Diagram 3 |
-| Product photo storage, written from the back office and served through the CDN | Diagram 1: a bucket behind CloudFront |
 | A spending alert for `prod` | Diagram 4: next to the alarm topic |
 | Order confirmation and shipping emails, vendor order forwarding | Diagram 2: new subscriber queues on the event bus |
 

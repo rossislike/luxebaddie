@@ -114,6 +114,7 @@ export class LbApiGateway extends Construct {
     this.addBackOfficeRoute("GET", "/product/{id}", integration);
     this.addBackOfficeRoute("PUT", "/product/{id}", integration);
     this.addBackOfficeRoute("DELETE", "/product/{id}", integration);
+    this.addBackOfficeRoute("POST", "/product-photo", integration);
   }
 
   private addBasketRoutes(integration: LambdaIntegration) {
