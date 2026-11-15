@@ -164,6 +164,14 @@ flowchart LR
     subgraph system["LuxeBaddie (planned)"]
         direction TB
 
+        subgraph backOfficeCtx["Back office (new context)"]
+            signIn([Sign in to the back office])
+        end
+
+        subgraph catalogCtx["Catalog"]
+            photos([Upload product photos])
+        end
+
         subgraph orderingCtx["Ordering"]
             status([Change an order's fulfillment status])
             tracking([Add tracking to an order])
@@ -188,6 +196,8 @@ flowchart LR
         end
     end
 
+    admin --- signIn
+    admin --- photos
     admin --- status
     admin --- tracking
     admin --- report
@@ -209,6 +219,7 @@ flowchart LR
 
 How these would fit the model:
 
+- **Back-office sign-in** changes how the Admin reaches the system, not what the Admin can do. Every existing admin use case stays as it is and gains a second way in: a signed-in owner, next to the AWS-signed requests that scripts and tests use. The back-office screens are a new client of those same use cases.
 - **Fulfillment** adds the first behavior that changes an `Order` after it is created, so the allowed status transitions become a domain rule in the ordering context.
 - **Notifications, reporting and vendor forwarding** each subscribe to events with their own queue, the way ordering and basket subscribe to `CheckoutCompleted` today. They need an `OrderPlaced` event published from the table's change stream (sketched in `backend/DATA-MODEL.md`). `CheckoutPaymentFailed` already exists and has no subscriber yet.
 - **Customer accounts** introduce a `Customer` aggregate. Today a customer is only the email on an order.
