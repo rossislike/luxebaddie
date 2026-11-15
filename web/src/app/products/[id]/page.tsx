@@ -21,18 +21,19 @@ export default async function ProductPage({ params }: PageProps<"/products/[id]"
   const category = categoryBySlug(product.category);
 
   return (
-    <div className="mx-auto grid max-w-7xl gap-10 px-5 pt-8 lg:grid-cols-2 lg:gap-16 lg:px-10 lg:pt-12">
-      <div className="aspect-[4/5] overflow-hidden rounded-sm bg-sand lg:sticky lg:top-32 lg:self-start">
+    <div className="mx-auto grid max-w-7xl gap-6 px-5 pt-6 sm:gap-10 sm:pt-8 lg:grid-cols-2 lg:gap-16 lg:px-10 lg:pt-12">
+      {/* Square on a phone, so the name and price are on the first screen instead of a scroll away. */}
+      <div className="aspect-square overflow-hidden rounded-sm bg-sand sm:aspect-[4/5] lg:sticky lg:top-32 lg:self-start">
         <ProductImage product={product} />
       </div>
 
       <div className="lg:py-6">
         {category && (
-          <Link href={`/shop/${category.slug}`} className="eyebrow link-underline">
+          <Link href={`/shop/${category.slug}`} className="eyebrow link-underline tap-target">
             {category.name}
           </Link>
         )}
-        <h1 className="mt-4 font-display text-5xl leading-tight sm:text-6xl">{product.name}</h1>
+        <h1 className="mt-4 font-display text-4xl leading-tight sm:text-6xl">{product.name}</h1>
         <p className="mt-3 text-lg text-cocoa italic">{product.tagline}</p>
 
         <AddToBag product={product} />

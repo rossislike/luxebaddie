@@ -64,7 +64,9 @@ The machinery: a site customers can buy from, a backend that records what they b
   - Stripe setup stays a manual, once-per-environment step, so Stripe keys never pass through the pipeline. None of the pipeline's roles can read a Stripe key
   - If a deploy fails, AWS puts the previous version back. If the tests fail afterwards, nothing is undone automatically: the run shows red and the fix is another change
   - Good to know: anything merged to `main` can change anything in this AWS account, which is how the deploy tool works by default. The rule that every change needs a passing pull request is the guard. This is one more reason to give production its own AWS account (see Phase 2)
-- [ ] Mobile pass on every page (most ad traffic will be on phones)
+- [x] Mobile pass on every page (most ad traffic will be on phones) (2026-11-15):
+  - Checked in a real browser at four phone sizes, from the smallest (320 wide) to the largest (430 wide), plus a tablet and a desktop: home, shop, the three category pages, product pages, the bag (empty and full), the order confirmation page and the "page not found" page
+  - Improved: nothing scrolls sideways any more, the top bar fits on one row and takes up less of the screen, product names in the grid no longer break one word per line, the price and "Add to bag" sit higher on product pages, and every link and button is easy to hit with a thumb. Desktop looks the same as before
 - [ ] Repeat a full paid test purchase through the hosted storefront address. Browsing, the bag and reaching Stripe's checkout are verified there; paying is not
 
 ### Back office

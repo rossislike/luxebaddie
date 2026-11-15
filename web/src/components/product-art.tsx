@@ -86,12 +86,12 @@ export function ProductArt({
   const paths = category === "lashes" ? lashes(next) : strands(next, wavy);
   const gradientId = `art-${productId}`;
 
+  // Decorative: the artwork says nothing about the product, and its name is always beside it.
   return (
     <svg
       viewBox="0 0 400 500"
       preserveAspectRatio="xMidYMid slice"
-      role="img"
-      aria-label="Product illustration"
+      aria-hidden
       className={`h-full w-full ${className}`}
     >
       <defs>

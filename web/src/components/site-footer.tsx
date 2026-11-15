@@ -13,7 +13,7 @@ export function SiteFooter() {
         </div>
         <nav aria-label="Footer" className="flex gap-8 text-sm tracking-[0.15em] uppercase">
           {categories.map((category) => (
-            <Link key={category.slug} href={`/shop/${category.slug}`} className="link-underline">
+            <Link key={category.slug} href={`/shop/${category.slug}`} className="link-underline tap-target">
               {category.name}
             </Link>
           ))}
