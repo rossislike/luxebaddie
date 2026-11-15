@@ -1,5 +1,6 @@
 import type { APIGatewayProxyEvent, APIGatewayProxyResult } from "aws-lambda";
 import type { z } from "zod";
+import { BACK_OFFICE_PREFIXES } from "../back-office";
 import { AppError, type AppErrorKind, invalid } from "../errors";
 
 const STATUS_BY_ERROR_KIND: Record<AppErrorKind, number> = {
@@ -31,6 +32,19 @@ export function httpRouter(routes: Record<string, Route>): HttpHandler {
       return { headers, ...errorResponse(routeKey, error) };
     }
   };
+}
+
+/**
+ * Declares back-office routes once, keyed without a prefix ("PUT /product/{id}"),
+ * and returns them under every back-office door (see shared/back-office.ts).
+ */
+export function backOfficeRoutes(routes: Record<string, Route>): Record<string, Route> {
+  return Object.fromEntries(
+    Object.entries(routes).flatMap(([routeKey, route]) => {
+      const [method, path] = routeKey.split(" ");
+      return BACK_OFFICE_PREFIXES.map((prefix) => [`${method} ${prefix}${path}`, route]);
+    }),
+  );
 }
 
 function errorResponse(routeKey: string, error: unknown): Pick<APIGatewayProxyResult, "statusCode" | "body"> {

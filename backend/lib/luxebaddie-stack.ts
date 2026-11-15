@@ -7,6 +7,7 @@ import { LbEndToEndTestAccess } from "./end-to-end-test-access";
 import { LbEventBus } from "./eventbus";
 import { LbMicroservices } from "./microservices";
 import { LbMonitoring } from "./monitoring";
+import { LbOwnerSignIn } from "./owner-sign-in";
 import { LbQueue } from "./queue";
 import type { StageConfig } from "./stage-config";
 import { LbStorefrontBuild } from "./storefront-build";
@@ -38,9 +39,12 @@ export class LuxeBaddieStack extends Stack {
       allowedOrigins,
     });
 
+    const ownerSignIn = new LbOwnerSignIn(this, "OwnerSignIn", { config });
+
     const apigateway = new LbApiGateway(this, "ApiGateway", {
       config,
       allowedOrigins,
+      ownerUserPool: ownerSignIn.userPool,
       productMicroservice: microservices.productMicroservice,
       basketMicroservice: microservices.basketMicroservice,
       paymentMicroservice: microservices.paymentMicroservice,
@@ -105,6 +109,7 @@ export class LuxeBaddieStack extends Stack {
         api: apigateway.api,
         eventBus: eventBus.bus,
         table: database.table,
+        ownerUserPool: ownerSignIn.userPool,
       });
     }
 
@@ -115,6 +120,8 @@ export class LuxeBaddieStack extends Stack {
     new CfnOutput(this, "StripeWebhookUrl", { value: `${apiUrl}/payment/webhook` });
     new CfnOutput(this, "EventBusName", { value: eventBus.bus.eventBusName });
     new CfnOutput(this, "TableName", { value: database.table.tableName });
+    new CfnOutput(this, "OwnerUserPoolId", { value: ownerSignIn.userPool.userPoolId });
+    new CfnOutput(this, "OwnerUserPoolClientId", { value: ownerSignIn.client.userPoolClientId });
     new CfnOutput(this, "OrderDeadLetterQueueUrl", { value: orderQueue.deadLetterQueue.queueUrl });
     new CfnOutput(this, "AlarmTopicArn", { value: monitoring.alarmTopic.topicArn });
     new CfnOutput(this, "DashboardName", { value: monitoring.dashboard.dashboardName });

@@ -16,6 +16,8 @@ export type StackOutputs = {
   StripeWebhookUrl: string;
   EventBusName: string;
   TableName: string;
+  OwnerUserPoolId: string;
+  OwnerUserPoolClientId: string;
   OrderDeadLetterQueueUrl: string;
 };
 
