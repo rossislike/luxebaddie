@@ -28,16 +28,25 @@ An online store for wigs, weaves and lashes, built to run with as little manual 
    │                  └──► paid-basket queue (SQS) ─► basket Lambda (empties the paid bag)
    └─ ordering Lambda                                order confirmation + fulfillment queue
 
+ Owner's browser
+   │  static back office (Next.js export)            backoffice/
+   ▼
+ CloudFront ── its own address, hidden from search engines ──► private S3 bucket
+   │
+   ├─ signs in on Cognito's hosted pages (password, then an authenticator code)
+   └─ calls the API's /backoffice/* routes with the sign-in token
+
  Keeping the storefront current:
    product saved or removed ─► table's change stream ─► change relay Lambda ─► CatalogChanged on the bus
    CatalogChanged, or a finished deployment ─► rebuild queue (SQS) ─► storefront Lambda ─► CodeBuild
    CodeBuild: builds the site from the catalog ─► uploads to S3 ─► clears CloudFront's cache
+   The back office is rebuilt the same way, by its own queue and build, after each deployment
 
  CloudWatch: alarms (dead-letter queues, Lambda errors, API and storefront 5xx, failed builds), one dashboard, X-Ray traces
 
  Getting changes there:
    pull request ─► CI checks, and a comment showing what it would change on AWS
-   merge to main ─► GitHub Actions ─► deploys dev (CDK) ─► waits for the rebuilt storefront ─► end-to-end tests
+   merge to main ─► GitHub Actions ─► deploys dev (CDK) ─► waits for both rebuilt sites ─► end-to-end tests
 ```
 
 A purchase, step by step:
@@ -62,14 +71,17 @@ A catalog change, step by step:
 | Path | What it is |
 | --- | --- |
 | `packages/contracts` | The shared language: product, basket, order and event shapes (zod schemas). Used by both sides. |
-| `backend/lib` | AWS infrastructure as code (CDK): database, microservices, API gateway, event bus, queues, storefront hosting and build, monitoring. |
+| `packages/api-client` | How a browser calls the API: timeouts, retries, errors. Used by both sites. |
+| `packages/site-build` | Build steps both sites share: writing each page's Content-Security-Policy. |
+| `backend/lib` | AWS infrastructure as code (CDK): database, microservices, API gateway, owner sign-in, event bus, queues, site hosting and builds, monitoring. |
 | `backend/src/<service>` | One folder per microservice, each laid out as ports and adapters (below). |
 | `backend/src/table` | The single table's key formats and item mappers. The only place that builds a key. |
 | `backend/DATA-MODEL.md` | The data model: entities, keys, and the request behind every access pattern. |
-| `backend/scripts` | Seed the catalog, connect a stage to Stripe, wait for the storefront to catch up with a deployment. |
+| `backend/scripts` | Seed the catalog, connect a stage to Stripe, invite an owner to the back office, wait for the sites to catch up with a deployment. |
 | `.github/workflows` | The checks on every pull request, the infrastructure comparison, and the deploy pipeline. |
 | `docs` | The domain model in UML: class, sequence, activity and use case diagrams for each bounded context. Start at [docs/README.md](docs/README.md). The deployed AWS pieces and their connections to Stripe are in [docs/infrastructure-diagrams.md](docs/infrastructure-diagrams.md). |
 | `web` | The storefront. |
+| `backoffice` | The back office: the private site the owner runs the store from. |
 
 Each microservice keeps business rules away from AWS and Stripe details:
 
@@ -100,8 +112,8 @@ Use cases are tested with in-memory fakes, so the business rules run without AWS
 Each stage has its own hosted storefront. Its address is the stack's `StorefrontUrl` output; `dev` is at https://d2dc32zxkhz4om.cloudfront.net until there is a domain.
 
 - **Private bucket, public CDN.** The site's files sit in an S3 bucket nobody can read directly. CloudFront is the only reader (origin access control, with a bucket policy naming this one distribution), so every request gets HTTPS and the security headers.
-- **Published by a build, never by hand.** `backend/lib/storefront-build.ts` defines a CodeBuild project that builds the site and uploads it. It runs when the catalog changes and when a deployment finishes, from the source that was deployed. There is no "upload the site" command to forget.
-- **Clean addresses.** The export is one file per page (`/shop.html`); a small CloudFront Function (`backend/lib/storefront-page-router.js`) maps `/shop` to it. Unknown addresses get the 404 page.
+- **Published by a build, never by hand.** `backend/lib/site-build.ts` defines a CodeBuild project that builds the site and uploads it. It runs when the catalog changes and when a deployment finishes, from the source that was deployed. There is no "upload the site" command to forget.
+- **Clean addresses.** The export is one file per page (`/shop.html`); a small CloudFront Function (`backend/lib/site-page-router.js`) maps `/shop` to it. Unknown addresses get the 404 page.
 - **Caching.** Files with a content hash in their name are cached for a year. Pages are revalidated by the browser on every visit and cached by CloudFront until the next publish clears it.
 - **Security headers**, added by CloudFront to every response, including errors:
 
@@ -115,12 +127,25 @@ Each stage has its own hosted storefront. Its address is the stack's `Storefront
   | `Permissions-Policy` | camera, microphone, location off | Nothing on the site can use them |
   | `Cross-Origin-Opener-Policy` | `same-origin` | Pages opened from the store get no handle back to it |
 
-- **The rest of the Content-Security-Policy is inside each page.** A static site cannot use per-request nonces, and Next.js puts inline scripts in every page. So the build (`web/scripts/content-security-policy.mjs`) writes a `<meta>` policy into each page listing the hash of exactly the inline scripts that page shipped with. Scripts run only from the site's own files or that list; `'unsafe-inline'` and `'unsafe-eval'` are never allowed for scripts. The browser may connect only to the site and the stage's API. If a third-party script is added later (an ad pixel, analytics), its origin has to be added there.
+- **The rest of the Content-Security-Policy is inside each page.** A static site cannot use per-request nonces, and Next.js puts inline scripts in every page. So the build (`packages/site-build/content-security-policy.mjs`) writes a `<meta>` policy into each page listing the hash of exactly the inline scripts that page shipped with. Scripts run only from the site's own files or that list; `'unsafe-inline'` and `'unsafe-eval'` are never allowed for scripts. The browser may connect only to the site and the stage's API. If a third-party script is added later (an ad pixel, analytics), its origin has to be added there.
 - **Logs.** CloudFront access logs go to a second private bucket (30 days in `dev`), without query strings, referrers or cookies: the order confirmation address contains the checkout session id.
 - **What it costs.** With no traffic, close to nothing: there is no fixed monthly fee for CloudFront, S3 or CodeBuild. CodeBuild's free tier covers 100 build minutes a month on this build size and a build takes about a minute ([CodeBuild pricing](https://aws.amazon.com/codebuild/pricing/)). Each publish uses one of CloudFront's 1,000 free cache-clearing paths a month ([CloudFront pricing](https://aws.amazon.com/cloudfront/pricing/pay-as-you-go/)). Beyond that, CloudFront charges for requests and data transferred, and S3 for a few megabytes of storage ([S3 pricing](https://aws.amazon.com/s3/pricing/)).
 - **Not yet in place, by choice:** a custom domain and certificate (waiting on the domain), and a web application firewall. Both are production decisions; see ROADMAP.md.
 
-To rebuild the storefront by hand (for example after a failed build), start the project named in the `StorefrontBuildProject` output from the CodeBuild console. If a build is already running, CodeBuild refuses, which is the intended behavior.
+To rebuild a site by hand (for example after a failed build), start the project named in the `StorefrontBuildProject` or `BackOfficeBuildProject` output from the CodeBuild console. If a build is already running, CodeBuild refuses, which is the intended behavior.
+
+## The back office
+
+The private site the owner runs the store from. It is a second static site, built and hosted exactly like the storefront (`LbSiteHosting` and `LbSiteBuild` in `backend/lib` serve both), with these differences:
+
+- **Its own address**, the stack's `BackOfficeUrl` output. A separate address means a separate browser origin: nothing that runs on the storefront, such as an ad pixel added later, can reach the owner's sign-in.
+- **Not linked from the shop, and hidden from search engines** three ways: an `X-Robots-Tag: noindex, nofollow` header on every response, the same instruction inside each page, and a `robots.txt` that disallows everything. These are requests to well-behaved crawlers, not protection. The protection is the next two points.
+- **Nothing is shown without a sign-in.** Every screen is wrapped in `SignedInOnly` (`backoffice/src/auth/signed-in-only.tsx`). The published page files contain one line, "Taking you to sign-in...", and no screen; the screens are drawn in the browser after the session check. The site's code is public the way any web app's is. It contains no store data.
+- **The data needs the sign-in token.** Every screen is filled from the API's `/backoffice/*` routes, which refuse any request without a valid token (see "The back-office routes and who gets in").
+- **Signing in happens on Cognito's pages**, not on this site (`backoffice/src/auth/owner-session.ts`, using the `oidc-client-ts` library: OAuth 2.0 authorization code flow with PKCE). Cognito only returns a signed-in owner to the back office's own addresses. Tokens are kept in the tab's `sessionStorage`: they are gone when the tab closes.
+- **Rebuilt after every deployment**, not on catalog changes: it has no catalog pages. The same publisher code is deployed a second time for it, with its own queue and build project.
+
+Screens so far: a home page with the number of orders waiting and the size of the catalog. The order and catalog screens are next in ROADMAP.md.
 
 ## Stripe
 
@@ -155,7 +180,7 @@ pnpm test:e2e            # end-to-end tests against the deployed dev stage, API 
 # Deploying by hand. Merging to main does all of this for you (see "After the merge" below);
 # these are for trying a branch on dev before it is merged. The next merge replaces it.
 pnpm deploy:dev                                         # deploy the dev stage to AWS (backend and storefront hosting)
-pnpm --filter @luxebaddie/backend storefront:wait:dev   # wait until the storefront has been rebuilt from what was just deployed
+pnpm --filter @luxebaddie/backend sites:wait:dev        # wait until the storefront and back office have been rebuilt from what was just deployed
 pnpm --filter @luxebaddie/backend diff:dev              # what the branch would change on AWS, without deploying
 
 # Look at real data by access pattern (run without a pattern to list them)
@@ -170,9 +195,16 @@ STRIPE_BASKET_KEY=rk_test_... STRIPE_PAYMENT_KEY=rk_test_... STRIPE_SETUP_KEY=rk
 cp web/.env.example web/.env.local   # set NEXT_PUBLIC_API_URL to the stack's ApiUrl output
 pnpm dev                             # http://localhost:3000
 pnpm build                           # static site in web/out, with each page's Content-Security-Policy
+
+# Back office, locally (the hosted one needs none of this)
+cp backoffice/.env.example backoffice/.env.local   # fill in the four values from the stack's outputs
+pnpm dev:backoffice                                # http://localhost:3001
+
+# Invite someone to the dev back office. Cognito emails them a temporary password
+pnpm --filter @luxebaddie/backend owner:invite:dev owner@example.com
 ```
 
-A checkout started from `localhost:3000` returns to `localhost:3000`; one started from the hosted storefront returns there. The API accepts browser calls from those two origins only.
+A checkout started from `localhost:3000` returns to `localhost:3000`; one started from the hosted storefront returns there. A sign-in started from `localhost:3001` returns to `localhost:3001`. The API accepts browser calls from those two local origins and the two hosted sites only.
 
 ### Getting a change into `main`
 
@@ -211,8 +243,8 @@ Merging is the deploy. `.github/workflows/deploy.yml` runs on every push to `mai
 | Stage | What it does |
 | --- | --- |
 | Checks | The same checks as the pull request, on the merged result |
-| Deploy to dev | Deploys the backend and the storefront's hosting with CDK, then waits until the storefront has been rebuilt from the new source and is live |
-| End-to-end tests on dev | Runs `pnpm test:e2e` against the live API and storefront |
+| Deploy to dev | Deploys the backend and both sites' hosting with CDK, then waits until the storefront and the back office have been rebuilt from the new source and are live |
+| End-to-end tests on dev | Runs `pnpm test:e2e` against the live API, storefront and back office |
 
 Runs go one at a time, and a run that has started is never cancelled. To run the pipeline again without a new commit, use "Run workflow" on the Deploy workflow in the Actions tab, or `gh workflow run deploy.yml`.
 
@@ -220,7 +252,7 @@ When something fails:
 
 - **A check fails:** nothing is deployed.
 - **The deployment fails:** CloudFormation puts the previous version back, and the storefront is rebuilt from it.
-- **The storefront build fails:** the deploy job fails after waiting 15 minutes. The backend is on the new version and the previous site stays up.
+- **A site's build fails:** the deploy job fails after waiting 15 minutes. The backend is on the new version and the previous version of that site stays up.
 - **An end-to-end test fails:** `dev` stays on the new version, which is now known to be broken. Nothing is rolled back for you: fix it with another pull request.
 
 **How GitHub gets into AWS.** No AWS key is stored in GitHub. For each job, GitHub issues a short-lived token saying which repository the job belongs to and which branch, environment or pull request it runs for. AWS swaps that token for credentials that expire within the hour, and only for a role whose conditions the run meets exactly (this is OpenID Connect, OIDC). There are three roles, one per job:
@@ -266,21 +298,20 @@ The back-office functions cover the catalog, the fulfillment queue (`/order`), a
 | Prefix | Who gets in | Used by |
 | --- | --- | --- |
 | `/admin/*` | Requests signed with AWS credentials that are allowed to invoke the route | Scripts, automation and the end-to-end tests. `backend/scripts/lib/aws.ts` has a ready-made signed `fetch` |
-| `/backoffice/*` | Requests carrying the sign-in token of an owner (`Authorization: Bearer <ID token>`) | The back-office site |
+| `/backoffice/*` | Requests carrying the sign-in token of an owner (`Authorization: Bearer <ID token>`) | The back office (`backOfficeFetch` in `backoffice/src/lib/api.ts`) |
 
 A service declares a back-office route once (`backOfficeRoutes` in `backend/src/shared/adapters/api-gateway.ts`) and the API adds it under both prefixes (`addBackOfficeRoute` in `backend/lib/apigateway.ts`). `backend/test/back-office-routes.ts` lists every one of them: a unit test fails if the API and that list disagree, and the end-to-end tests check that each is refused without a sign-in.
 
 ### Back-office sign-in
 
-The owner signs in with Amazon Cognito (`backend/lib/owner-sign-in.ts`). Cognito keeps the password and runs the sign-in; nothing in this repository sees either.
+The owner signs in with Amazon Cognito (`backend/lib/owner-sign-in.ts`), on sign-in pages Cognito hosts (the stack's `OwnerSignInPagesUrl` output). Cognito keeps the password and runs the sign-in; nothing in this repository sees either.
 
-- **By invitation only.** There is no way to register. An account exists because someone with access to the AWS account created it.
+- **By invitation only.** There is no way to register. An account exists because someone with access to the AWS account ran `pnpm --filter @luxebaddie/backend owner:invite:dev <email>`. Cognito emails a temporary password, good for three days; the first sign-in asks for a new password and sets up the authenticator app. Running the command again re-sends an expired invitation.
 - **Two steps, every time.** The password, then a six-digit code from an authenticator app (1Password, Google Authenticator, Authy and the like). Text-message and email codes are switched off.
 - **Sessions end.** A sign-in lasts 12 hours. The API accepts each token for 15 minutes; the back office swaps it for a fresh one in the background until the 12 hours are up.
 - **Sign out everywhere**, for a lost phone or laptop: `aws cognito-idp admin-user-global-sign-out --user-pool-id <OwnerUserPoolId> --username <email>`. No new tokens are issued from that moment, and the ones already issued stop working within 15 minutes.
-- **A lost authenticator** cannot be reset by the owner alone, on purpose: an email inbox must not be enough to get in. Delete the account (`aws cognito-idp admin-delete-user ...`) and invite the owner again. The account holds no data, so nothing is lost.
+- **A lost authenticator** cannot be reset by the owner alone, on purpose: an email inbox must not be enough to get in. Delete the account (`aws cognito-idp admin-delete-user --user-pool-id <OwnerUserPoolId> --username <email>`) and invite the owner again. The account holds no data, so nothing is lost.
 - **Forgotten password:** reset by email from the sign-in page. The authenticator code is still required afterwards.
+- **Signing out** in the back office ends the session in that tab and Cognito's own sign-in session, so the next visit asks for the password and the code again.
 
-The sign-in pages and the invitation command arrive with the back-office site (ROADMAP.md). Until then the user pool exists, has no members, and the `/backoffice/*` routes refuse everyone.
-
-Operations: the `LuxeBaddie-dev` CloudWatch dashboard shows traffic, errors, queue health, storefront requests and storefront builds. A failed storefront build raises an alarm: the site stays up on the previous version, but is missing whatever changed. To receive alarm emails, set `alarmEmail` for the stage in `backend/lib/stage-config.ts`.
+Operations: the `LuxeBaddie-dev` CloudWatch dashboard shows traffic, errors, queue health, and each site's requests and builds. A failed build of either site raises an alarm: the site stays up on the previous version, but is missing whatever changed. To receive alarm emails, set `alarmEmail` for the stage in `backend/lib/stage-config.ts`.

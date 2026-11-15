@@ -1,0 +1,33 @@
+{
+  "name": "@luxebaddie/backoffice",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 3001",
+    "build": "next build && apply-content-security-policy NEXT_PUBLIC_API_URL NEXT_PUBLIC_SIGN_IN_ISSUER NEXT_PUBLIC_SIGN_IN_PAGES_URL",
+    "start": "npx serve out",
+    "lint": "eslint",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@luxebaddie/api-client": "workspace:*",
+    "@luxebaddie/contracts": "workspace:*",
+    "next": "16.4.6",
+    "oidc-client-ts": "^3.3.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@luxebaddie/site-build": "workspace:*",
+    "@tailwindcss/turbopack": "4.3.3",
+    "@types/node": "^22",
+    "@types/react": "^19",
+    "@types/react-dom": "^19",
+    "eslint": "^9",
+    "eslint-config-next": "16.4.6",
+    "tailwindcss": "4.3.3",
+    "typescript": "^5",
+    "vitest": "^5.1.0"
+  }
+}

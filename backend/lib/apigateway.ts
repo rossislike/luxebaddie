@@ -18,7 +18,7 @@ import { STRIPE_WEBHOOK_IPS } from "./stripe-webhook-ips";
 
 interface LbApiGatewayProps {
   config: StageConfig;
-  /** Browser origins allowed to call the API (CORS): the stage's storefronts. */
+  /** Browser origins allowed to call the API (CORS): the stage's storefronts and back offices. */
   allowedOrigins: string[];
   /** Whoever is signed in to this user pool may use the back-office routes. */
   ownerUserPool: IUserPool;

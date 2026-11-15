@@ -63,10 +63,11 @@ jobs:
       # If the deployment fails, CloudFormation puts the previous version back.
       - name: Deploy the backend and the storefront's hosting
         run: pnpm deploy:dev
-      # The deployment starts a storefront build. The site is not up to date,
-      # and this job is not done, until that build has published.
-      - name: Wait for the rebuilt storefront to be live
-        run: pnpm --filter @luxebaddie/backend storefront:wait:dev
+      # The deployment starts a build of each site (storefront and back office).
+      # They are not up to date, and this job is not done, until both builds
+      # have published.
+      - name: Wait for the rebuilt storefront and back office to be live
+        run: pnpm --filter @luxebaddie/backend sites:wait:dev
       - name: Link the deployment to the storefront
         id: storefront
         run: echo "url=$(jq --raw-output '."LuxeBaddie-dev".StorefrontUrl' backend/cdk-outputs.dev.json)" >> "$GITHUB_OUTPUT"

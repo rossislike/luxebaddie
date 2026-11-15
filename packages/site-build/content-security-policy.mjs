@@ -1,5 +1,6 @@
-// The storefront's Content-Security-Policy: the browser-enforced list of what a
-// page may load and run. It is the main defence against injected scripts.
+// A static site's Content-Security-Policy: the browser-enforced list of what a
+// page may load and run. It is the main defence against injected scripts. Used
+// by both sites, the storefront and the back office.
 //
 // The site is static, so a policy cannot use per-request nonces. Instead each
 // page lists the SHA-256 hash of every inline script Next.js put in it, and the
@@ -9,7 +10,7 @@
 //
 // A <meta> policy cannot express `frame-ancestors`. That one directive, along
 // with the other security headers, is added by CloudFront
-// (backend/lib/storefront-hosting.ts).
+// (backend/lib/site-hosting.ts).
 
 import { createHash } from "node:crypto";
 
@@ -30,11 +31,12 @@ export function inlineScriptHashes(html) {
 }
 
 /**
- * @param {{ scriptHashes: string[], apiOrigin: string }} sources
- *   scriptHashes: the page's inline scripts. apiOrigin: the backend API the browser calls.
+ * @param {{ scriptHashes: string[], connectOrigins: string[] }} sources
+ *   scriptHashes: the page's inline scripts. connectOrigins: the services the
+ *   page calls from the browser (the backend API, and for the back office the sign-in service).
  * @returns {string}
  */
-export function contentSecurityPolicy({ scriptHashes, apiOrigin }) {
+export function contentSecurityPolicy({ scriptHashes, connectOrigins }) {
   return [
     "default-src 'self'",
     // Scripts: our own files, plus exactly the inline scripts this page shipped with.
@@ -44,10 +46,10 @@ export function contentSecurityPolicy({ scriptHashes, apiOrigin }) {
     // Product photos are absolute URLs on an image host (see `images` in the product contract).
     "img-src 'self' data: https:",
     "font-src 'self'",
-    `connect-src 'self' ${apiOrigin}`,
+    ["connect-src 'self'", ...connectOrigins].join(" "),
     "object-src 'none'",
     "base-uri 'self'",
-    // Checkout is a redirect to Stripe, not a form post, so forms never leave the site.
+    // Checkout and sign-in are redirects, not form posts, so forms never leave the site.
     "form-action 'self'",
     "upgrade-insecure-requests",
   ].join("; ");
@@ -71,9 +73,9 @@ export function withContentSecurityPolicy(html, policy) {
 
 /**
  * @param {string} html one exported page
- * @param {string} apiOrigin
+ * @param {string[]} connectOrigins
  * @returns {string} the same page, now carrying its own policy
  */
-export function securePage(html, apiOrigin) {
-  return withContentSecurityPolicy(html, contentSecurityPolicy({ scriptHashes: inlineScriptHashes(html), apiOrigin }));
+export function securePage(html, connectOrigins) {
+  return withContentSecurityPolicy(html, contentSecurityPolicy({ scriptHashes: inlineScriptHashes(html), connectOrigins }));
 }

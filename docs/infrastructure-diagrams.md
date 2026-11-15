@@ -19,7 +19,7 @@ Source: `backend/lib/luxebaddie-stack.ts` and every construct it creates.
 flowchart TB
     shopper(["Shopper's browser"])
     stripe(["Stripe<br/>hosted Checkout, API, webhooks"])
-    owner(["Store owner<br/>signed in, or IAM-signed requests"])
+    owner(["Store owner's browser,<br/>or IAM-signed requests from a script"])
 
     subgraph aws["AWS: one stack per stage (LuxeBaddie-dev)"]
         direction TB
@@ -29,8 +29,13 @@ flowchart TB
             siteBucket[("S3 site bucket<br/>private")]
         end
 
+        subgraph officeHosting["Back office hosting"]
+            officeCloudfront["CloudFront distribution<br/>its own address, HTTPS,<br/>security headers, no search engines"]
+            officeBucket[("S3 site bucket<br/>private")]
+        end
+
         apigw["API Gateway REST API<br/>rate limited, /admin needs IAM,<br/>/backoffice needs the owner's sign-in,<br/>webhook limited to Stripe's addresses"]
-        signin["Cognito user pool<br/>owner sign-in, invitation only,<br/>authenticator app required"]
+        signin["Cognito user pool<br/>and its hosted sign-in pages:<br/>invitation only, authenticator app required"]
         lambdas["Lambda microservices<br/>product, basket, payment, ordering,<br/>product change relay, storefront"]
         params[["SSM Parameter Store<br/>encrypted Stripe secrets"]]
         table[("DynamoDB table<br/>products, bags, orders")]
@@ -40,7 +45,7 @@ flowchart TB
             queues["SQS queues<br/>one per subscriber,<br/>each with a dead-letter queue"]
         end
 
-        codebuild["CodeBuild project<br/>builds and publishes the storefront"]
+        codebuild["CodeBuild projects, one per site<br/>build and publish the storefront<br/>and the back office"]
         monitoring["CloudWatch alarms, dashboard,<br/>logs and traces, SNS alarm topic"]
     end
 
@@ -49,8 +54,10 @@ flowchart TB
     shopper -- "catalog, bag, checkout,<br/>order confirmation" --> apigw
     shopper -- "pays on Stripe's page" --> stripe
     stripe -- "payment webhooks" --> apigw
+    owner -- "pages" --> officeCloudfront
+    officeCloudfront -- "reads files" --> officeBucket
     owner -- "back-office routes" --> apigw
-    owner -. "signs in" .-> signin
+    owner -. "signs in on Cognito's pages" .-> signin
     apigw -- "checks the owner's token" --> signin
 
     apigw --> lambdas
@@ -63,8 +70,10 @@ flowchart TB
 
     lambdas -- "start a build" --> codebuild
     codebuild -- "reads the catalog" --> apigw
-    codebuild -- "uploads the site" --> siteBucket
+    codebuild -- "uploads each site" --> siteBucket
+    codebuild -- "uploads each site" --> officeBucket
     codebuild -- "clears the cache" --> cloudfront
+    codebuild -- "clears the cache" --> officeCloudfront
 ```
 
 This is the map. Monitoring watches every piece, so its arrows are left out here and drawn in diagram 4. The Lambda box is opened up in diagram 2, and the Stripe and secrets connections in diagram 3.
@@ -73,16 +82,17 @@ This is the map. Monitoring watches every piece, so its arrows are left out here
 
 | Piece | AWS service | What it does | Defined in |
 | --- | --- | --- | --- |
-| Storefront hosting | CloudFront, S3 | Serves the static site over HTTPS. The bucket is private and only this distribution can read it. A CloudFront Function maps `/shop` to `shop.html` | `lib/storefront-hosting.ts`, `lib/storefront-page-router.js` |
+| Storefront hosting | CloudFront, S3 | Serves the static site over HTTPS. The bucket is private and only this distribution can read it. A CloudFront Function maps `/shop` to `shop.html` | `lib/site-hosting.ts`, `lib/site-page-router.js` |
+| Back office hosting | CloudFront, S3 | The same construct a second time: the owner's private site at its own address, with one more header asking search engines not to list it | `lib/site-hosting.ts`, `lib/site-page-router.js` |
 | API | API Gateway (REST) | One base URL in front of every service. 50 requests a second, bursts of 100. Its resource policy decides who may call which route | `lib/apigateway.ts` |
-| Owner sign-in | Cognito | The store owner's account for the back office. Nobody can register, every sign-in needs a code from an authenticator app, a session lasts 12 hours and one token 15 minutes | `lib/owner-sign-in.ts` |
-| Microservices | Lambda | Six functions, one job each. ARM, 512 MB, 25 second timeout, JSON logs, tracing on | `lib/microservices.ts` |
+| Owner sign-in | Cognito | The store owner's account for the back office, and the sign-in pages Cognito hosts for it. Nobody can register, every sign-in needs a code from an authenticator app, a session lasts 12 hours and one token 15 minutes. A signed-in owner is only ever returned to the back office's own addresses | `lib/owner-sign-in.ts`, `scripts/invite-owner.ts` |
+| Microservices | Lambda | Seven functions, one job each. ARM, 512 MB, 25 second timeout, JSON logs, tracing on | `lib/microservices.ts` |
 | Database | DynamoDB | One on-demand table for products, bags and orders, with two overloaded indexes, expiry on bags, and a change stream | `lib/database.ts`, `backend/DATA-MODEL.md` |
 | Secrets | SSM Parameter Store | Holds the Stripe keys and webhook signing secret as encrypted `SecureString` parameters | `lib/stage-config.ts`, `scripts/stripe-setup.ts` |
 | Event bus | EventBridge | Publish-subscribe: one rule per event type fans it out to each subscriber's queue | `lib/eventbus.ts` |
 | Queues | SQS | Each subscriber's inbox, with its own retries and dead-letter queue | `lib/queue.ts` |
 | Change feed | DynamoDB Streams to Lambda | Turns saved product changes into `CatalogChanged` events, so the event can never disagree with the table | `lib/change-feed.ts` |
-| Storefront build | CodeBuild | Builds the Next.js site from the deployed source and the live catalog, uploads it, and clears CloudFront's cache. One build at a time | `lib/storefront-build.ts` |
+| Site builds | CodeBuild | One project per site. Builds the Next.js site from the deployed source (and, for the storefront, the live catalog), uploads it, and clears CloudFront's cache. One build at a time per site | `lib/site-build.ts` |
 | Monitoring | CloudWatch, SNS, X-Ray | Alarms, one dashboard, logs and request traces | `lib/monitoring.ts` |
 
 ### Who can reach what
@@ -91,7 +101,8 @@ Access is enforced by the infrastructure, not by convention.
 
 | Boundary | Rule | Enforced by |
 | --- | --- | --- |
-| Internet to the site bucket | Never directly. Only through CloudFront | Bucket policy naming this one distribution (origin access control) |
+| Internet to a site bucket | Never directly. Only through that site's CloudFront distribution | Bucket policy naming the one distribution (origin access control) |
+| Internet to the back office's pages | Anyone can fetch the page files, which hold the screens' code and no store data. They show one line, "Taking you to sign-in", until the visitor has signed in | The sign-in check around every screen (`backoffice/src/auth/signed-in-only.tsx`). The data is protected by the `/backoffice` row below |
 | Internet to public API routes | Anyone, rate limited: `GET /product`, `/basket/{id}`, `GET /order/session/{sessionId}` | API Gateway resource policy and stage throttling |
 | Internet to `/admin` routes | Only AWS identities in this account with permission to invoke them, with signed requests (SigV4) | IAM authorization on each admin method |
 | Internet to `/backoffice` routes | Only a signed-in owner. The same functions as `/admin`, behind a different check | Cognito authorizer on each back-office method, checking every request's token against the user pool |
@@ -100,7 +111,8 @@ Access is enforced by the infrastructure, not by convention.
 | A service to the table | Only items whose key starts with its own prefix. Basket may also read products | IAM conditions on `dynamodb:LeadingKeys` |
 | A service to a secret | Only its own parameters | IAM grants per parameter (checked by `test/unit/stack.test.ts`) |
 | GitHub Actions to AWS | Only this repository, and each role only from the kind of run it is for. Credentials last an hour at most; no key is stored | Each role's trust policy, matching the repository and run in GitHub's token exactly (diagram 5) |
-| Browser to other origins | Only the site itself and the stage's API | Content-Security-Policy written into each page by the build |
+| Browser to other origins | The storefront: only itself and the stage's API. The back office: itself, the API and the sign-in service | Content-Security-Policy written into each page by the build |
+| The storefront to the back office | Nothing in common: separate addresses, so separate browser origins, buckets and distributions. A script running on the storefront cannot read the owner's session | Two `LbSiteHosting` constructs (`lib/luxebaddie-stack.ts`) |
 
 ## 2. Inside the backend
 
@@ -129,6 +141,7 @@ flowchart LR
         orderQueue["order queue"]
         paidBasketQueue["paid basket queue"]
         rebuildQueue["storefront rebuild queue"]
+        officeRebuildQueue["back office rebuild queue"]
     end
 
     subgraph both["Lambdas behind the API and a queue"]
@@ -138,10 +151,13 @@ flowchart LR
 
     storefrontFn["storefront<br/>Lambda"]
     codebuild["CodeBuild<br/>storefront build"]
+    officePublisherFn["back office publisher<br/>Lambda (the storefront<br/>Lambda's code again)"]
+    officeCodebuild["CodeBuild<br/>back office build"]
+    deployment(["A finished deployment<br/>of this stack"])
 
-    apigw -- "/product, /admin/product" --> productFn
+    apigw -- "/product, /admin/product,<br/>/backoffice/product" --> productFn
     apigw -- "/payment/webhook" --> paymentFn
-    apigw -- "/order, /admin/order,<br/>/admin/customer" --> orderingFn
+    apigw -- "/order, /admin and /backoffice:<br/>/order, /customer" --> orderingFn
     apigw -- "/basket" --> basketFn
 
     productFn -- "reads and writes products" --> items
@@ -160,6 +176,11 @@ flowchart LR
     paidBasketQueue -- "empty the paid bag" --> basketFn
     rebuildQueue --> storefrontFn
     storefrontFn -- "starts a build" --> codebuild
+
+    deployment --> rebuildQueue
+    deployment --> officeRebuildQueue
+    officeRebuildQueue --> officePublisherFn
+    officePublisherFn -- "starts a build" --> officeCodebuild
 ```
 
 - **Services never call each other.** They share the table (each limited to its own items) and otherwise talk through events.
@@ -237,7 +258,7 @@ Things worth knowing:
 
 Where work goes when it fails, and how anyone finds out.
 
-Source: `backend/lib/queue.ts`, `backend/lib/change-feed.ts`, `backend/lib/eventbus.ts`, `backend/lib/monitoring.ts`, `backend/lib/storefront-build.ts`, `backend/lib/storefront-hosting.ts`.
+Source: `backend/lib/queue.ts`, `backend/lib/change-feed.ts`, `backend/lib/eventbus.ts`, `backend/lib/monitoring.ts`, `backend/lib/site-build.ts`, `backend/lib/site-hosting.ts`.
 
 ```mermaid
 flowchart LR
@@ -308,18 +329,18 @@ Alarms that are not drawn above, to keep the picture readable: the API returning
 
 | What fails | What happens | How you find out |
 | --- | --- | --- |
-| A subscriber cannot process an event | SQS redelivers it. After 5 tries (10 for storefront rebuilds) it moves to that subscriber's dead-letter queue. Other subscribers are unaffected | Dead-letter alarm |
+| A subscriber cannot process an event | SQS redelivers it. After 5 tries (10 for site rebuilds) it moves to that subscriber's dead-letter queue. Other subscribers are unaffected | Dead-letter alarm |
 | EventBridge cannot deliver to a queue | The event goes to the same dead-letter queue | Dead-letter alarm |
 | A product change cannot be announced | The batch is split to isolate the bad change, retried 10 times, then described in the change feed's dead-letter queue | Change feed alarm |
-| A storefront build fails | The previous version of the site stays live | Build failed alarm |
+| A storefront or back office build fails | The previous version of that site stays live | That site's build failed alarm |
 | A build is requested while one is running | CodeBuild refuses it. The request waits in the queue and is retried, up to half an hour | Nothing, this is normal |
 | Stripe cannot reach the webhook, or it errors | Stripe redelivers until it gets a success response | Payment Lambda error alarm, API 5xx alarm |
 
-Logs are kept for one month in `dev` (six months where `retainData` is on). CloudFront access logs go to a private S3 bucket without query strings, referrers or cookies, because the order confirmation address contains the checkout session id.
+Logs are kept for one month in `dev` (six months where `retainData` is on). CloudFront access logs go to a private S3 bucket without query strings, referrers or cookies, because the order confirmation address contains the checkout session id, and back-office addresses contain order numbers and customer emails.
 
 ## 5. How changes get to AWS
 
-Source: `.github/workflows/ci.yml`, `.github/workflows/infrastructure-diff.yml`, `.github/workflows/deploy.yml`, `backend/lib/github-actions.ts`, `backend/lib/deploy-access-stack.ts`, `backend/lib/end-to-end-test-access.ts`, `backend/lib/storefront-build.ts`, `backend/scripts/wait-for-storefront.ts`.
+Source: `.github/workflows/ci.yml`, `.github/workflows/infrastructure-diff.yml`, `.github/workflows/deploy.yml`, `backend/lib/github-actions.ts`, `backend/lib/deploy-access-stack.ts`, `backend/lib/end-to-end-test-access.ts`, `backend/lib/site-build.ts`, `backend/scripts/wait-for-sites.ts`.
 
 ```mermaid
 flowchart LR
@@ -390,7 +411,7 @@ flowchart LR
 - **A pull request gets as little as possible**, because it runs code nobody has reviewed yet. Its comparison is template against template, which needs nothing but read access to one stack. Pull requests from forks and from Dependabot cannot sign in at all.
 - **Deploying is still administrator-level.** CloudFormation makes the changes with the role `cdk bootstrap` created for it, which can do anything in this account. So anything merged to `main` can change anything in the account: the ruleset on `main` is the guard. Narrowing this is part of the production account decision in [ROADMAP.md](../ROADMAP.md).
 - **Stripe is outside the pipeline.** No workflow reads or writes a Stripe key. Connecting a stage to Stripe stays the manual step in diagram 3. The test role can see that the parameters exist, never their values.
-- **The deploy job is only done when the storefront is.** A deployment starts a storefront build and returns. Each build writes the time it started to `/build.json` on the site, and the job waits until the live site carries a time later than the deployment's end. If the build fails, the job fails and the previous site stays up.
+- **The deploy job is only done when both sites are.** A deployment starts a build of the storefront and one of the back office, and returns. Each build writes the time it started to `/build.json` on its site, and the job waits until both live sites carry a time later than the deployment's end. If a build fails, the job fails and the previous version of that site stays up.
 - **The site is only ever published by the build.** There is no "upload the site" command, so what is live always matches the deployed source and the current catalog.
 - **Workflow logs are public**, because the repository is. The AWS account number is kept as a GitHub secret so it is masked in them, and it is removed from the pull request comment before posting. It is the only AWS detail GitHub stores.
 
@@ -405,7 +426,6 @@ These are planned in [ROADMAP.md](../ROADMAP.md) and are deliberately absent fro
 | A custom domain with its certificate and DNS | Diagram 1: in front of CloudFront |
 | A web application firewall, or a CloudFront flat-rate plan | Diagram 1: in front of CloudFront |
 | A dedicated KMS key for the `prod` Stripe parameters, and an alarm on unexpected reads of them | Diagram 3 |
-| A back-office site at its own address | Diagram 1: its own private bucket and CloudFront distribution, separate from the storefront's |
 | Product photo storage, written from the back office and served through the CDN | Diagram 1: a bucket behind CloudFront |
 | A spending alert for `prod` | Diagram 4: next to the alarm topic |
 | Order confirmation and shipping emails, vendor order forwarding | Diagram 2: new subscriber queues on the event bus |

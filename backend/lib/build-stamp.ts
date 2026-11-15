@@ -1,11 +1,11 @@
 /**
- * How to tell whether the live storefront is up to date with a deployment.
+ * How to tell whether a live site is up to date with a deployment.
  *
- * Every storefront build records when it started in a small file on the site.
+ * Every site build records when it started in a small file on the site.
  * A build that started after a deployment finished was built from what that
  * deployment put in place, so comparing the two times answers the question
- * without access to the build system. Written by lib/storefront-build.ts, read
- * by scripts/wait-for-storefront.ts.
+ * without access to the build system. Written by lib/site-build.ts, read
+ * by scripts/wait-for-sites.ts.
  */
 
 /** Where on the site a build records itself. */

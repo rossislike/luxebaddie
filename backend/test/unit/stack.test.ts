@@ -93,8 +93,9 @@ describe("LuxeBaddieStack", () => {
     expect(dynamoGrantsOf("payment")).toEqual([]);
   });
 
-  it("creates one Lambda per microservice, plus the product service's change relay", () => {
+  it("creates one Lambda per microservice, plus the product service's change relay and the back office's publisher", () => {
     expect(Object.keys(serviceFunctions()).map((id) => id.replace(/LambdaFunction.*/, "")).sort()).toEqual([
+      "MicroservicesbackOfficePublisher",
       "Microservicesbasket",
       "Microservicesordering",
       "Microservicespayment",
@@ -117,7 +118,7 @@ describe("LuxeBaddieStack", () => {
   });
 
   it("gives every subscriber queue a dead-letter queue, an alarm and per-message retries", () => {
-    const subscribers = 3; // order, paid basket, storefront rebuild
+    const subscribers = 4; // order, paid basket, storefront rebuild, back office rebuild
     template.resourcePropertiesCountIs("AWS::SQS::Queue", { RedrivePolicy: Match.anyValue() }, subscribers);
     template.resourcePropertiesCountIs(
       "AWS::Lambda::EventSourceMapping",
@@ -256,6 +257,38 @@ describe("owner sign-in", () => {
     }
   });
 
+  it("signs the owner in on Cognito's own pages, and returns them only to the back office", () => {
+    const [client] = Object.values(template.findResources("AWS::Cognito::UserPoolClient"));
+    const urls = (list: unknown[]) => list.map((url) => JSON.stringify(url));
+
+    expect(client?.Properties).toMatchObject({
+      AllowedOAuthFlows: ["code"],
+      AllowedOAuthScopes: ["openid", "email"],
+      SupportedIdentityProviders: ["COGNITO"],
+    });
+    expect(urls(client?.Properties.CallbackURLs)).toEqual([
+      expect.stringMatching(/BackOfficeHostingDistribution.*\/sign-in\/callback/),
+      '"http://localhost:3001/sign-in/callback"',
+    ]);
+    expect(urls(client?.Properties.LogoutURLs)).toEqual([
+      expect.stringMatching(/BackOfficeHostingDistribution.*\/signed-out/),
+      '"http://localhost:3001/signed-out"',
+    ]);
+    template.hasResourceProperties("AWS::Cognito::UserPoolDomain", { ManagedLoginVersion: 2 });
+    template.resourceCountIs("AWS::Cognito::ManagedLoginBranding", 1);
+  });
+
+  it("returns the owner to the hosted back office only, on a stage without local development", () => {
+    const production = new LuxeBaddieStack(new App(), "NoLocalDevelopment", {
+      config: { ...stageConfigFor("dev"), localBackOfficeOrigins: [] },
+      env: { account: "123456789012", region: "us-east-1" },
+    });
+    const [client] = Object.values(Template.fromStack(production).findResources("AWS::Cognito::UserPoolClient"));
+
+    expect(client?.Properties.CallbackURLs).toHaveLength(1);
+    expect(JSON.stringify(client?.Properties.CallbackURLs)).not.toContain("localhost");
+  }, 120_000);
+
   it("allows password sign-in through the AWS API only where the end-to-end tests run", () => {
     const flowsOf = (candidate: Template) =>
       Object.values(candidate.findResources("AWS::Cognito::UserPoolClient"))[0]?.Properties.ExplicitAuthFlows;
@@ -308,149 +341,234 @@ describe("catalog change feed", () => {
   });
 });
 
-describe("storefront hosting", () => {
+/** The CloudFormation resources of one site, picked out by the construct they belong to. */
+const SITES = [
+  { title: "storefront", hosting: "StorefrontHosting", build: "StorefrontBuild", packageName: "@luxebaddie/web", directory: "web" },
+  { title: "back office", hosting: "BackOfficeHosting", build: "BackOfficeBuild", packageName: "@luxebaddie/backoffice", directory: "backoffice" },
+] as const;
+
+const resourcesOf = (type: string, idPrefix: string): Resource[] =>
+  Object.entries(template.findResources(type))
+    .filter(([id]) => id.startsWith(idPrefix))
+    .map(([, resource]) => resource);
+
+const only = (type: string, idPrefix: string): Resource => {
+  const found = resourcesOf(type, idPrefix);
+  if (found.length !== 1) throw new Error(`Expected one ${type} under ${idPrefix}, found ${found.length}`);
+  return found[0]!;
+};
+
+const customHeadersOf = (hosting: string): Record<string, string> =>
+  Object.fromEntries(
+    only("AWS::CloudFront::ResponseHeadersPolicy", hosting).Properties.ResponseHeadersPolicyConfig.CustomHeadersConfig.Items.map(
+      (item: { Header: string; Value: string }) => [item.Header, item.Value],
+    ),
+  );
+
+describe.each(SITES)("$title hosting", ({ hosting }) => {
   it("keeps the site and its logs in private, encrypted, HTTPS-only buckets", () => {
-    template.resourceCountIs("AWS::S3::Bucket", 2);
-    template.allResourcesProperties("AWS::S3::Bucket", {
-      PublicAccessBlockConfiguration: {
-        BlockPublicAcls: true,
-        BlockPublicPolicy: true,
-        IgnorePublicAcls: true,
-        RestrictPublicBuckets: true,
-      },
-      BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: "AES256" } }] },
-      OwnershipControls: { Rules: [{ ObjectOwnership: "BucketOwnerEnforced" }] },
-    });
-    const denyPlainHttp = statementsOf("AWS::S3::BucketPolicy", "StorefrontHosting").filter(
+    const buckets = resourcesOf("AWS::S3::Bucket", hosting);
+
+    expect(buckets).toHaveLength(2);
+    for (const bucket of buckets) {
+      expect(bucket.Properties).toMatchObject({
+        PublicAccessBlockConfiguration: {
+          BlockPublicAcls: true,
+          BlockPublicPolicy: true,
+          IgnorePublicAcls: true,
+          RestrictPublicBuckets: true,
+        },
+        BucketEncryption: { ServerSideEncryptionConfiguration: [{ ServerSideEncryptionByDefault: { SSEAlgorithm: "AES256" } }] },
+        OwnershipControls: { Rules: [{ ObjectOwnership: "BucketOwnerEnforced" }] },
+      });
+    }
+    const denyPlainHttp = statementsOf("AWS::S3::BucketPolicy", hosting).filter(
       (statement) => statement.Effect === "Deny" && statement.Condition?.Bool?.["aws:SecureTransport"] === "false",
     );
     expect(denyPlainHttp).toHaveLength(2);
   });
 
-  it("lets only this distribution, in this account, read the site", () => {
-    const readers = statementsOf("AWS::S3::BucketPolicy", "StorefrontHostingSite").filter(
+  it("lets only its own distribution, in this account, read the site", () => {
+    const readers = statementsOf("AWS::S3::BucketPolicy", `${hosting}Site`).filter(
       (statement) => statement.Effect === "Allow" && [statement.Action].flat().includes("s3:GetObject"),
     );
 
     expect(readers.map((statement) => statement.Principal)).toEqual([{ Service: "cloudfront.amazonaws.com" }]);
     expect(Object.keys(readers[0]?.Condition.StringEquals)).toEqual(["AWS:SourceArn", "AWS:SourceAccount"]);
-    template.hasResourceProperties("AWS::CloudFront::OriginAccessControl", {
-      OriginAccessControlConfig: { OriginAccessControlOriginType: "s3", SigningBehavior: "always", SigningProtocol: "sigv4" },
+    expect(JSON.stringify(readers[0]?.Condition.StringEquals["AWS:SourceArn"])).toContain(`${hosting}Distribution`);
+    expect(only("AWS::CloudFront::OriginAccessControl", hosting).Properties.OriginAccessControlConfig).toMatchObject({
+      OriginAccessControlOriginType: "s3",
+      SigningBehavior: "always",
+      SigningProtocol: "sigv4",
     });
   });
 
-  it("serves the storefront over HTTPS only, through the page router", () => {
-    template.hasResourceProperties("AWS::CloudFront::Distribution", {
-      DistributionConfig: {
-        DefaultRootObject: "index.html",
-        DefaultCacheBehavior: {
-          ViewerProtocolPolicy: "redirect-to-https",
-          Compress: true,
-          FunctionAssociations: [Match.objectLike({ EventType: "viewer-request" })],
-        },
+  it("serves the site over HTTPS only, through the page router", () => {
+    expect(only("AWS::CloudFront::Distribution", hosting).Properties.DistributionConfig).toMatchObject({
+      DefaultRootObject: "index.html",
+      DefaultCacheBehavior: {
+        ViewerProtocolPolicy: "redirect-to-https",
+        Compress: true,
+        FunctionAssociations: [expect.objectContaining({ EventType: "viewer-request" })],
       },
     });
   });
 
   it("answers an unknown address with the 404 page", () => {
-    const [distribution] = Object.values(template.findResources("AWS::CloudFront::Distribution"));
-
-    expect(distribution?.Properties.DistributionConfig.CustomErrorResponses).toEqual(
+    expect(only("AWS::CloudFront::Distribution", hosting).Properties.DistributionConfig.CustomErrorResponses).toEqual(
       [403, 404].map((ErrorCode) => expect.objectContaining({ ErrorCode, ResponseCode: 404, ResponsePagePath: "/404.html" })),
     );
   });
 
   it("adds the security headers to every response", () => {
-    template.hasResourceProperties("AWS::CloudFront::ResponseHeadersPolicy", {
-      ResponseHeadersPolicyConfig: {
-        SecurityHeadersConfig: {
-          StrictTransportSecurity: { AccessControlMaxAgeSec: 63_072_000, IncludeSubdomains: true, Override: true },
-          ContentTypeOptions: { Override: true },
-          FrameOptions: { FrameOption: "DENY", Override: true },
-          ContentSecurityPolicy: { ContentSecurityPolicy: "frame-ancestors 'none'", Override: true },
-          ReferrerPolicy: { ReferrerPolicy: "strict-origin-when-cross-origin", Override: true },
-        },
-        CustomHeadersConfig: {
-          Items: Match.arrayWith([Match.objectLike({ Header: "Permissions-Policy" })]),
-        },
-      },
+    const { SecurityHeadersConfig } = only("AWS::CloudFront::ResponseHeadersPolicy", hosting).Properties.ResponseHeadersPolicyConfig;
+
+    expect(SecurityHeadersConfig).toMatchObject({
+      StrictTransportSecurity: { AccessControlMaxAgeSec: 63_072_000, IncludeSubdomains: true, Override: true },
+      ContentTypeOptions: { Override: true },
+      FrameOptions: { FrameOption: "DENY", Override: true },
+      ContentSecurityPolicy: { ContentSecurityPolicy: "frame-ancestors 'none'", Override: true },
+      ReferrerPolicy: { ReferrerPolicy: "strict-origin-when-cross-origin", Override: true },
     });
+    expect(Object.keys(customHeadersOf(hosting))).toEqual(expect.arrayContaining(["Permissions-Policy", "Cross-Origin-Opener-Policy"]));
+  });
+
+  it("starts access logging only once the API and the site's build exist, clear of the burst that follows a new distribution", () => {
+    const waitsFor: string[] = only("AWS::Logs::DeliverySource", hosting).DependsOn;
+
+    expect(waitsFor.some((id) => id.startsWith("ApiGatewayapiDeploymentStage"))).toBe(true);
+    expect(waitsFor.some((id) => id.startsWith(`${hosting.replace("Hosting", "Build")}Project`))).toBe(true);
   });
 
   it("logs every request, without the query string, referrer or cookies", () => {
-    const [delivery] = Object.values(template.findResources("AWS::Logs::Delivery"));
+    const delivery = only("AWS::Logs::Delivery", hosting);
 
-    expect(delivery?.Properties.RecordFields).toContain("cs-uri-stem");
+    expect(delivery.Properties.RecordFields).toContain("cs-uri-stem");
     for (const sensitive of ["cs-uri-query", "cs(Referer)", "cs(Cookie)"]) {
-      expect(delivery?.Properties.RecordFields).not.toContain(sensitive);
+      expect(delivery.Properties.RecordFields).not.toContain(sensitive);
     }
   });
+});
 
-  it("tells the services where the storefront is", () => {
+describe("the two sites", () => {
+  it("are separate: each has its own buckets and its own distribution", () => {
+    template.resourceCountIs("AWS::S3::Bucket", 4);
+    template.resourceCountIs("AWS::CloudFront::Distribution", 2);
+  });
+
+  it("asks search engines to leave the back office alone, and not the storefront", () => {
+    expect(customHeadersOf("BackOfficeHosting")["X-Robots-Tag"]).toBe("noindex, nofollow");
+    expect(customHeadersOf("StorefrontHosting")).not.toHaveProperty("X-Robots-Tag");
+  });
+
+  it("tells the services where the storefront is, and lets both sites call the API", () => {
     const { basket } = Object.fromEntries(
       Object.entries(serviceFunctions()).map(([id, fn]) => [id.replace(/^Microservices|LambdaFunction.*$/g, ""), fn]),
     );
     const { STOREFRONT_URL, ALLOWED_ORIGINS } = basket?.Properties.Environment.Variables;
 
     expect(JSON.stringify(STOREFRONT_URL)).toContain("StorefrontHostingDistribution");
-    expect(JSON.stringify(ALLOWED_ORIGINS)).toContain("StorefrontHostingDistribution");
-    expect(JSON.stringify(ALLOWED_ORIGINS)).toContain("http://localhost:3000");
+    expect(JSON.stringify(STOREFRONT_URL)).not.toContain("BackOfficeHostingDistribution");
+    for (const origin of ["StorefrontHostingDistribution", "BackOfficeHostingDistribution", "http://localhost:3000", "http://localhost:3001"]) {
+      expect(JSON.stringify(ALLOWED_ORIGINS)).toContain(origin);
+    }
   });
 });
 
-describe("storefront build", () => {
+describe.each(SITES)("$title build", ({ hosting, build, packageName, directory }) => {
+  const project = () => only("AWS::CodeBuild::Project", build);
+  const commands = (): string[] => project().Properties.Source.BuildSpec.split("\n");
+  const lineOf = (text: string) => commands().findIndex((command) => command.includes(text));
+
   it("runs one build at a time, so an older build can never overwrite a newer one", () => {
-    template.hasResourceProperties("AWS::CodeBuild::Project", { ConcurrentBuildLimit: 1 });
+    expect(project().Properties.ConcurrentBuildLimit).toBe(1);
   });
 
-  it("builds against this stage's API and publishes to this stage's bucket and distribution", () => {
-    const [project] = Object.values(template.findResources("AWS::CodeBuild::Project"));
-    const variables = project?.Properties.Environment.EnvironmentVariables.map((v: { Name: string }) => v.Name);
+  it("publishes to its own site's bucket and distribution", () => {
+    const variables = Object.fromEntries(
+      project().Properties.Environment.EnvironmentVariables.map((v: { Name: string; Value: unknown }) => [v.Name, JSON.stringify(v.Value)]),
+    );
 
-    expect(variables.sort()).toEqual(["DISTRIBUTION_ID", "NEXT_PUBLIC_API_URL", "NEXT_PUBLIC_SITE_URL", "SITE_BUCKET"]);
+    expect(variables.SITE_BUCKET).toContain(`${hosting}Site`);
+    expect(variables.DISTRIBUTION_ID).toContain(`${hosting}Distribution`);
+  });
+
+  it("builds its own package from its own source", () => {
+    expect(lineOf(`pnpm install --frozen-lockfile --filter "${packageName}..."`)).toBeGreaterThan(-1);
+    expect(lineOf(`pnpm --filter ${packageName} build`)).toBeGreaterThan(-1);
   });
 
   it("records on the site when each build started, before publishing it", () => {
-    const [project] = Object.values(template.findResources("AWS::CodeBuild::Project"));
-    const commands: string[] = project?.Properties.Source.BuildSpec.split("\n");
-    const lineOf = (text: string) => commands.findIndex((command) => command.includes(text));
-
-    expect(lineOf("web/out/build.json")).toBeGreaterThan(lineOf("pnpm --filter @luxebaddie/web build"));
-    expect(lineOf("web/out/build.json")).toBeLessThan(lineOf("aws s3 sync"));
+    expect(lineOf(`${directory}/out/build.json`)).toBeGreaterThan(lineOf(`pnpm --filter ${packageName} build`));
+    expect(lineOf(`${directory}/out/build.json`)).toBeLessThan(lineOf("aws s3 sync"));
   });
 
-  it("rebuilds when the catalog changes and when a deployment finishes", () => {
-    const catalogChanged = ruleMatching({ source: ["com.luxebaddie.product"], "detail-type": ["CatalogChanged"] });
-    const deploymentFinished = ruleMatching({
+  it("rebuilds when a deployment finishes", () => {
+    const [deploymentFinished] = resourcesOf("AWS::Events::Rule", build);
+
+    expect(deploymentFinished?.Properties.EventPattern).toMatchObject({
       source: ["aws.cloudformation"],
       "detail-type": ["CloudFormation Stack Status Change"],
-      detail: Match.objectLike({
-        "status-details": { status: ["CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"] },
-      }),
+      detail: { "status-details": { status: ["CREATE_COMPLETE", "UPDATE_COMPLETE", "UPDATE_ROLLBACK_COMPLETE"] } },
     });
-
-    for (const rule of [catalogChanged, deploymentFinished]) {
-      expect(JSON.stringify(rule.Properties.Targets)).toContain("StorefrontRebuildQueue");
-    }
-  });
-
-  it("collects a burst of changes into one batch for the storefront service", () => {
-    template.hasResourceProperties("AWS::Lambda::EventSourceMapping", {
-      MaximumBatchingWindowInSeconds: 30,
-      FunctionResponseTypes: ["ReportBatchItemFailures"],
-    });
-  });
-
-  it("lets the storefront service start builds of this project and nothing else", () => {
-    const [startBuild] = statementsOf("AWS::IAM::Policy", "storefrontLambdaFunction").filter(
-      (statement) => statement.Action === "codebuild:StartBuild",
-    );
-
-    expect(JSON.stringify(startBuild?.Resource)).toContain("StorefrontBuildProject");
+    expect(JSON.stringify(deploymentFinished?.Properties.Targets)).toContain(build.replace("Build", "RebuildQueue"));
   });
 
   it("raises an alarm when a build fails", () => {
-    template.hasResourceProperties("AWS::CloudWatch::Alarm", { MetricName: "FailedBuilds", Namespace: "AWS/CodeBuild" });
+    const alarms = Object.values(
+      template.findResources("AWS::CloudWatch::Alarm", { Properties: { MetricName: "FailedBuilds", Namespace: "AWS/CodeBuild" } }),
+    );
+
+    expect(alarms.filter((alarm) => JSON.stringify(alarm.Properties.Dimensions).includes(`${build}Project`))).toHaveLength(1);
+  });
+});
+
+describe("what makes each site out of date", () => {
+  it("rebuilds the storefront, and only the storefront, when the catalog changes", () => {
+    const catalogChanged = ruleMatching({ source: ["com.luxebaddie.product"], "detail-type": ["CatalogChanged"] });
+    const targets = JSON.stringify(catalogChanged.Properties.Targets);
+
+    expect(targets).toContain("StorefrontRebuildQueue");
+    expect(targets).not.toContain("BackOfficeRebuildQueue");
+  });
+
+  it("collects a burst of rebuild requests into one batch for each publisher", () => {
+    template.resourcePropertiesCountIs(
+      "AWS::Lambda::EventSourceMapping",
+      { MaximumBatchingWindowInSeconds: 30, FunctionResponseTypes: ["ReportBatchItemFailures"] },
+      2,
+    );
+  });
+
+  it.each([
+    ["storefrontLambdaFunction", "StorefrontBuildProject"],
+    ["backOfficePublisherLambdaFunction", "BackOfficeBuildProject"],
+  ])("lets %s start builds of its own site and nothing else", (publisher, ownProject) => {
+    const startBuild = statementsOf("AWS::IAM::Policy", publisher).filter((statement) => statement.Action === "codebuild:StartBuild");
+
+    expect(startBuild).toHaveLength(1);
+    expect(JSON.stringify(startBuild[0]?.Resource)).toContain(ownProject);
+  });
+});
+
+describe("the storefront's and the back office's settings", () => {
+  const settingsOf = (build: string): string[] =>
+    only("AWS::CodeBuild::Project", build)
+      .Properties.Environment.EnvironmentVariables.map((variable: { Name: string }) => variable.Name)
+      .filter((name: string) => name.startsWith("NEXT_PUBLIC_"))
+      .sort();
+
+  it("builds the storefront against this stage's API", () => {
+    expect(settingsOf("StorefrontBuild")).toEqual(["NEXT_PUBLIC_API_URL", "NEXT_PUBLIC_SITE_URL"]);
+  });
+
+  it("builds the back office against this stage's API and sign-in", () => {
+    expect(settingsOf("BackOfficeBuild")).toEqual([
+      "NEXT_PUBLIC_API_URL",
+      "NEXT_PUBLIC_SIGN_IN_CLIENT_ID",
+      "NEXT_PUBLIC_SIGN_IN_ISSUER",
+      "NEXT_PUBLIC_SIGN_IN_PAGES_URL",
+    ]);
   });
 });
 

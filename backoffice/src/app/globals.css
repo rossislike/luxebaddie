@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+/* The brand colours and typefaces, as on the storefront (web/src/app/globals.css). */
+@theme {
+  --color-ink: #17110f;
+  --color-cream: #faf6f0;
+  --color-sand: #efe6da;
+  --color-cocoa: #6b5548;
+  --color-blush: #f3dcd4;
+  --color-wine: #6b1d3a;
+  --color-gold: #b8904f;
+  --color-rose-gold: #cdb5a7;
+  --color-leaf: #2f6b4a;
+
+  --font-display: var(--font-bodoni), "Didot", "Bodoni MT", serif;
+  --font-sans: var(--font-jost), ui-sans-serif, system-ui, sans-serif;
+}
+
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2.75rem;
+    padding: 0.625rem 1.5rem;
+    font-size: 0.8125rem;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    transition:
+      background-color 200ms ease,
+      color 200ms ease,
+      opacity 200ms ease;
+  }
+  .btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+  .btn-primary {
+    background: var(--color-ink);
+    color: var(--color-cream);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-wine);
+  }
+  .btn-outline {
+    border: 1px solid currentColor;
+  }
+  .btn-outline:hover:not(:disabled) {
+    background: var(--color-ink);
+    color: var(--color-cream);
+    border-color: var(--color-ink);
+  }
+  .btn-danger {
+    border: 1px solid var(--color-wine);
+    color: var(--color-wine);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--color-wine);
+    color: var(--color-cream);
+  }
+
+  .eyebrow {
+    font-size: 0.75rem;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--color-gold);
+  }
+
+  .field {
+    width: 100%;
+    min-height: 2.75rem;
+    border: 1px solid color-mix(in srgb, var(--color-ink) 25%, transparent);
+    background: white;
+    padding: 0.5rem 0.75rem;
+    font-size: 1rem;
+  }
+  .field:focus-visible {
+    outline: 2px solid var(--color-wine);
+    outline-offset: 1px;
+  }
+
+  .panel {
+    border: 1px solid color-mix(in srgb, var(--color-ink) 12%, transparent);
+    background: white;
+  }
+}

@@ -13,11 +13,16 @@ export type StackOutputs = {
   StorefrontUrl: string;
   StorefrontBucketName: string;
   StorefrontBuildProject: string;
+  BackOfficeUrl: string;
+  BackOfficeBucketName: string;
+  BackOfficeBuildProject: string;
   StripeWebhookUrl: string;
   EventBusName: string;
   TableName: string;
   OwnerUserPoolId: string;
   OwnerUserPoolClientId: string;
+  OwnerSignInIssuer: string;
+  OwnerSignInPagesUrl: string;
   OrderDeadLetterQueueUrl: string;
 };
 

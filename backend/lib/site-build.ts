@@ -11,38 +11,51 @@ import { Construct } from "constructs";
 import { BUILD_STAMP_PATH, DEPLOYMENT_FINISHED_STATUSES } from "./build-stamp";
 import type { LbQueue } from "./queue";
 import type { StageConfig } from "./stage-config";
-import type { LbStorefrontHosting } from "./storefront-hosting";
+import type { LbSiteHosting, Site } from "./site-hosting";
 
-interface LbStorefrontBuildProps {
+/** A static site's source: one workspace package of this repository. */
+export type SiteSource = Site & {
+  /** The package's folder at the repository root, e.g. "web". */
+  directory: string;
+  /** The package's name, e.g. "@luxebaddie/web". */
+  packageName: string;
+};
+
+interface LbSiteBuildProps {
   config: StageConfig;
-  hosting: LbStorefrontHosting;
-  /** Base URL of the API: the build reads the catalog from it, and the built pages call it from the browser. */
-  apiUrl: string;
-  /** The storefront microservice. It is told which project to start and allowed to start it. */
+  site: SiteSource;
+  hosting: LbSiteHosting;
+  /**
+   * Addresses and identifiers built into the site's pages (its NEXT_PUBLIC_
+   * settings). None of them is a secret: everything here ends up in files
+   * anyone can download.
+   */
+  settings: Record<string, string>;
+  /** The Lambda that starts builds. It is told which project to start and allowed to start it. */
   publisher: LambdaFunction;
-  /** The publisher's inbox. Anything that makes the live storefront out of date sends a message here. */
+  /** The publisher's inbox. Anything that makes the live site out of date sends a message here. */
   rebuildQueue: LbQueue;
 }
 
 const repoRoot = fileURLToPath(new URL("../..", import.meta.url));
 
 /**
- * The files a storefront build needs, as .gitignore-style rules: nothing at
- * the top level except the workspace files, the storefront and the shared
- * contracts, and within those no installed dependencies, build output or
- * local settings. Anything else in the repository can change without the
- * storefront being rebuilt.
+ * The files a site's build needs, as .gitignore-style rules: nothing at the
+ * top level except the workspace files, the site's own package and the shared
+ * packages, and within those no installed dependencies, build output or local
+ * settings. Anything else in the repository can change without the site being
+ * rebuilt.
  */
-const STOREFRONT_SOURCE = [
+const sourceOf = (site: SiteSource) => [
   "/*",
   "!/package.json",
   "!/pnpm-lock.yaml",
   "!/pnpm-workspace.yaml",
-  "!/web",
+  `!/${site.directory}`,
   "!/packages",
   "node_modules",
   ".next",
-  "/web/out",
+  `/${site.directory}/out`,
   "next-env.d.ts",
   "*.tsbuildinfo",
   ".env*",
@@ -58,45 +71,44 @@ const CACHE_FOREVER = "public,max-age=31536000,immutable";
 const CACHE_UNTIL_NEXT_PUBLISH = "public,max-age=0,s-maxage=31536000,must-revalidate";
 
 /**
- * Builds the storefront and puts it live. This is the only way the site is
- * ever published, so what is live always came from the deployed source and the
- * catalog as it was when the build ran.
+ * Builds one of the stage's static sites and puts it live. This is the only
+ * way a site is ever published, so what is live always came from the deployed
+ * source and, for the storefront, the catalog as it was when the build ran.
  *
- * A build is needed whenever the live site is out of date:
- *  - the catalog changed (the stack subscribes the rebuild queue to CatalogChanged), or
- *  - a deployment finished, which may have changed the storefront's code or
- *    the addresses built into it (wired up here).
- * Either sends a message to the rebuild queue; the storefront microservice
- * then starts this project, one build at a time.
+ * A build is needed whenever the live site is out of date. Whatever notices
+ * that sends a message to the rebuild queue, and the publisher then starts
+ * this project, one build at a time. One cause is wired up here because every
+ * site shares it: a deployment finished, which may have changed the site's
+ * code or the addresses built into it. The stack adds the storefront's other
+ * cause, a catalog change.
  */
-export class LbStorefrontBuild extends Construct {
+export class LbSiteBuild extends Construct {
   public readonly project: Project;
 
-  constructor(scope: Construct, id: string, props: LbStorefrontBuildProps) {
+  constructor(scope: Construct, id: string, props: LbSiteBuildProps) {
     super(scope, id);
-    const { config, hosting } = props;
+    const { config, site, hosting } = props;
 
     // Uploaded by `cdk deploy`, so builds always use the source that was deployed.
     const source = new Asset(this, "Source", {
       path: repoRoot,
-      exclude: STOREFRONT_SOURCE,
+      exclude: sourceOf(site),
       ignoreMode: IgnoreMode.GIT,
     });
 
     this.project = new Project(this, "Project", {
-      description: `Builds the LuxeBaddie storefront and publishes it (${config.stage})`,
+      description: `Builds the LuxeBaddie ${site.title} and publishes it (${config.stage})`,
       source: Source.s3({ bucket: source.bucket, path: source.s3ObjectKey }),
       environment: {
         buildImage: LinuxArmBuildImage.AMAZON_LINUX_2023_STANDARD_3_0,
         computeType: ComputeType.SMALL,
       },
       environmentVariables: {
-        NEXT_PUBLIC_API_URL: { value: props.apiUrl },
-        NEXT_PUBLIC_SITE_URL: { value: hosting.url },
+        ...Object.fromEntries(Object.entries(props.settings).map(([name, value]) => [name, { value }])),
         SITE_BUCKET: { value: hosting.bucket.bucketName },
         DISTRIBUTION_ID: { value: hosting.distribution.distributionId },
       },
-      buildSpec: publishStorefront(),
+      buildSpec: publishSite(site),
       // A second build is refused rather than run alongside the first, so an
       // older build can never finish last and overwrite a newer one.
       concurrentBuildLimit: 1,
@@ -131,7 +143,7 @@ export class LbStorefrontBuild extends Construct {
   /**
    * CloudFormation announces on the account's default event bus when a
    * deployment of this stack ends. A rollback counts: it puts the previous
-   * storefront source back, and the live site should follow.
+   * source back, and the live site should follow.
    */
   private rebuildAfterDeployment(rebuildQueue: LbQueue) {
     new Rule(this, "DeploymentFinishedRule", {
@@ -150,15 +162,17 @@ export class LbStorefrontBuild extends Construct {
 }
 
 /** Writes the build stamp into the built site. CodeBuild provides its start time in milliseconds. */
-const RECORD_BUILD_START = `node -e 'require("fs").writeFileSync("web/out/${BUILD_STAMP_PATH}", JSON.stringify({ startedAt: new Date(Number(process.env.CODEBUILD_START_TIME)).toISOString() }))'`;
+const recordBuildStart = (exportDir: string) =>
+  `node -e 'require("fs").writeFileSync("${exportDir}/${BUILD_STAMP_PATH}", JSON.stringify({ startedAt: new Date(Number(process.env.CODEBUILD_START_TIME)).toISOString() }))'`;
 
 /**
  * The build itself. A phase stops at its first failing command, so nothing is
  * uploaded unless the site built, and the build is only reported as succeeded
- * once the new site is what shoppers get.
+ * once the new site is what visitors get.
  */
-function publishStorefront(): BuildSpec {
-  const site = "s3://$SITE_BUCKET";
+function publishSite(site: SiteSource): BuildSpec {
+  const exportDir = `${site.directory}/out`;
+  const bucket = "s3://$SITE_BUCKET";
   return BuildSpec.fromObjectToYaml({
     version: "0.2",
     phases: {
@@ -168,25 +182,25 @@ function publishStorefront(): BuildSpec {
         commands: [
           // Provides the pnpm version named in package.json.
           "corepack enable",
-          'pnpm install --frozen-lockfile --filter "@luxebaddie/web..."',
+          `pnpm install --frozen-lockfile --filter "${site.packageName}..."`,
         ],
       },
       build: {
         commands: [
-          // Reads the catalog from the API and writes the static site to web/out.
-          "pnpm --filter @luxebaddie/web build",
+          // Writes the static site to the export folder. The storefront reads the catalog from the API to do it.
+          `pnpm --filter ${site.packageName} build`,
           // Records when this build started, on the site itself (lib/build-stamp.ts).
-          RECORD_BUILD_START,
+          recordBuildStart(exportDir),
 
           // 1. New hashed files first: pages only ever point at files that already exist.
-          `aws s3 sync web/out/_next/static ${site}/_next/static --cache-control "${CACHE_FOREVER}" --no-progress`,
+          `aws s3 sync ${exportDir}/_next/static ${bucket}/_next/static --cache-control "${CACHE_FOREVER}" --no-progress`,
           // 2. The pages themselves, removing pages that no longer exist (a deleted product).
-          `aws s3 sync web/out ${site} --exclude "_next/static/*" --cache-control "${CACHE_UNTIL_NEXT_PUBLISH}" --delete --no-progress`,
+          `aws s3 sync ${exportDir} ${bucket} --exclude "_next/static/*" --cache-control "${CACHE_UNTIL_NEXT_PUBLISH}" --delete --no-progress`,
           // 3. Clear CloudFront's copies and wait until every edge location serves the new site.
           'INVALIDATION_ID=$(aws cloudfront create-invalidation --distribution-id "$DISTRIBUTION_ID" --paths "/*" --query Invalidation.Id --output text)',
           'aws cloudfront wait invalidation-completed --distribution-id "$DISTRIBUTION_ID" --id "$INVALIDATION_ID"',
           // 4. Only now drop the previous build's hashed files: no page refers to them any more.
-          `aws s3 sync web/out/_next/static ${site}/_next/static --cache-control "${CACHE_FOREVER}" --delete --no-progress`,
+          `aws s3 sync ${exportDir}/_next/static ${bucket}/_next/static --cache-control "${CACHE_FOREVER}" --delete --no-progress`,
         ],
       },
     },

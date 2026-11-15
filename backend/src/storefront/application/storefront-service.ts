@@ -17,10 +17,10 @@ export function createStorefrontService(builder: StorefrontBuilder) {
     async requestRebuild(): Promise<"started" | "deferred"> {
       const request = await builder.startBuild();
       if (request.outcome === "busy") {
-        console.log("A storefront build is already running; this request will be retried");
+        console.log("A build of the site is already running; this request will be retried");
         return "deferred";
       }
-      console.log("Started a storefront build", { buildId: request.buildId });
+      console.log("Started a build of the site", { buildId: request.buildId });
       return "started";
     },
   };

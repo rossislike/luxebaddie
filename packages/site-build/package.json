@@ -1,0 +1,22 @@
+{
+  "name": "@luxebaddie/site-build",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Build steps shared by the static sites (storefront and back office).",
+  "exports": {
+    "./content-security-policy": "./content-security-policy.mjs"
+  },
+  "bin": {
+    "apply-content-security-policy": "./apply-content-security-policy.mjs"
+  },
+  "scripts": {
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@next/env": "16.4.6"
+  },
+  "devDependencies": {
+    "vitest": "^5.1.0"
+  }
+}

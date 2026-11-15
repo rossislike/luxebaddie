@@ -1,9 +1,9 @@
 /**
  * CloudFront Function, run on every request before the cache is consulted.
  *
- * The storefront is exported as one file per page (/shop.html,
- * /products/some-wig.html) but shoppers visit clean addresses (/shop,
- * /products/some-wig). This maps the address to the file. Addresses that
+ * Each static site (storefront, back office) is exported as one file per
+ * page (/shop.html, /products/some-wig.html) but people visit clean addresses
+ * (/shop, /products/some-wig). This maps the address to the file. Addresses that
  * already name a file (anything with an extension) pass through untouched, as
  * does the home page, which the distribution's default root object serves.
  *
