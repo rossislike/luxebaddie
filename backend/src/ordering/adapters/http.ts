@@ -1,7 +1,7 @@
 import { fulfillmentStatusSchema, type Order, type Page } from "@luxebaddie/contracts";
 import type { APIGatewayProxyEvent } from "aws-lambda";
 import { z } from "zod";
-import { type HttpHandler, httpRouter, pathParam } from "../../shared/adapters/api-gateway";
+import { backOfficeRoutes, type HttpHandler, httpRouter, pathParam } from "../../shared/adapters/api-gateway";
 import { invalid } from "../../shared/errors";
 import type { OrderService } from "../application/order-service";
 import type { PageRequest } from "../application/ports";
@@ -14,10 +14,10 @@ const pageSizeSchema = z.coerce.number().int().min(1).max(MAX_PAGE_SIZE).default
 /**
  * Public (order confirmation page):
  *   GET /order/session/{sessionId}        the order for a checkout session
- * Admin (IAM-signed requests only):
- *   GET /admin/order                      the fulfillment queue: ?fulfillmentStatus= (default unfulfilled), oldest first
- *   GET /admin/order/{id}
- *   GET /admin/customer/{email}/order     one customer's orders, newest first
+ * Back office (under /admin and /backoffice, see shared/back-office.ts):
+ *   GET /order                            the fulfillment queue: ?fulfillmentStatus= (default unfulfilled), oldest first
+ *   GET /order/{id}
+ *   GET /customer/{email}/order           one customer's orders, newest first
  *
  * Lists are paged: pass ?limit= (default 25, at most 100) and the previous
  * response's nextCursor as ?cursor=.
@@ -28,18 +28,20 @@ export function orderHttpHandler(orders: OrderService): HttpHandler {
       body: { order: await orders.getConfirmation(pathParam(event, "sessionId")) },
     }),
 
-    "GET /admin/order": async (event) => {
-      const status = fulfillmentStatusSchema.safeParse(event.queryStringParameters?.fulfillmentStatus ?? "unfulfilled");
-      if (!status.success) throw invalid("Unknown fulfillmentStatus");
-      return { body: toListResponse(await orders.listByFulfillmentStatus(status.data, pageRequest(event))) };
-    },
+    ...backOfficeRoutes({
+      "GET /order": async (event) => {
+        const status = fulfillmentStatusSchema.safeParse(event.queryStringParameters?.fulfillmentStatus ?? "unfulfilled");
+        if (!status.success) throw invalid("Unknown fulfillmentStatus");
+        return { body: toListResponse(await orders.listByFulfillmentStatus(status.data, pageRequest(event))) };
+      },
 
-    "GET /admin/order/{id}": async (event) => ({
-      body: { order: await orders.getOrder(pathParam(event, "id")) },
-    }),
+      "GET /order/{id}": async (event) => ({
+        body: { order: await orders.getOrder(pathParam(event, "id")) },
+      }),
 
-    "GET /admin/customer/{email}/order": async (event) => ({
-      body: toListResponse(await orders.listForCustomer(pathParam(event, "email"), pageRequest(event))),
+      "GET /customer/{email}/order": async (event) => ({
+        body: toListResponse(await orders.listForCustomer(pathParam(event, "email"), pageRequest(event))),
+      }),
     }),
   });
 }

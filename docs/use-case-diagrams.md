@@ -12,7 +12,7 @@ Mermaid has no dedicated use case diagram, so these are drawn with its flowchart
 | Actor | Kind | Who they are |
 | --- | --- | --- |
 | Shopper | Primary, human | Anyone browsing the store. Anonymous: there are no accounts |
-| Admin | Primary, human | The business owner. Calls `/admin/*` routes with AWS-signed requests |
+| Admin | Primary, human | The business owner. Reaches the back-office functions two ways: signed in to the back office (`/backoffice/*` routes), or with AWS-signed requests from a script (`/admin/*` routes) |
 | Stripe | Secondary, external system | Hosts the payment page and reports payment results |
 | Deployment | Secondary, system | A finished deployment of the stack, which makes the published site out of date |
 
@@ -50,6 +50,10 @@ flowchart LR
             verify([Verify the notification is from Stripe])
         end
 
+        subgraph accessCtx["Back-office access"]
+            signIn([Sign in to the back office])
+        end
+
         subgraph orderingCtx["Ordering"]
             record([Record a paid checkout as an order])
             confirm([View the order confirmation])
@@ -70,6 +74,7 @@ flowchart LR
     shopper --- checkout
     shopper --- confirm
 
+    admin --- signIn
     admin --- listAll
     admin --- saveProduct
     admin --- removeProduct
@@ -105,12 +110,15 @@ flowchart LR
 | Stripe | Report a payment result | Payment | `POST /payment/webhook` | Only from Stripe's addresses, with a valid signature. The session is read back from Stripe before anything is trusted |
 | (event) | Record a paid checkout as an order | Ordering | `CheckoutCompleted` | Exactly one order per payment, however many times the event arrives |
 | (event) | Empty the paid bag | Basket | `CheckoutCompleted` | Safe to repeat |
+| Admin | Sign in to the back office | Back-office access | Amazon Cognito | By invitation only. Password, then a code from an authenticator app, every time. A session lasts 12 hours |
 | Admin | List every product, drafts included | Catalog | `GET /admin/product` | |
 | Admin | Create or replace a product | Catalog | `PUT /admin/product/{id}` | The whole product is replaced. SKUs unique, options consistent |
 | Admin | Remove a product | Catalog | `DELETE /admin/product/{id}` | |
 | Admin | View the fulfillment queue | Ordering | `GET /admin/order` | By fulfillment status, oldest first, paged |
 | Admin | Look up an order by number | Ordering | `GET /admin/order/{id}` | |
 | Admin | List a customer's orders by email | Ordering | `GET /admin/customer/{email}/order` | Newest first, paged |
+
+Every Admin route above also exists under `/backoffice` in place of `/admin`, for example `GET /backoffice/order`. The `/admin` copy accepts AWS-signed requests and the `/backoffice` copy accepts the signed-in owner's token; behind either, the use case is the same one.
 | Admin, Deployment | Rebuild and publish the site | Storefront | `CatalogChanged`, or a finished deployment | One build at a time. A failed build leaves the previous site up and raises an alarm |
 
 ## The purchase, as one goal
@@ -164,10 +172,6 @@ flowchart LR
     subgraph system["LuxeBaddie (planned)"]
         direction TB
 
-        subgraph backOfficeCtx["Back office (new context)"]
-            signIn([Sign in to the back office])
-        end
-
         subgraph catalogCtx["Catalog"]
             photos([Upload product photos])
         end
@@ -196,7 +200,6 @@ flowchart LR
         end
     end
 
-    admin --- signIn
     admin --- photos
     admin --- status
     admin --- tracking
@@ -219,7 +222,7 @@ flowchart LR
 
 How these would fit the model:
 
-- **Back-office sign-in** changes how the Admin reaches the system, not what the Admin can do. Every existing admin use case stays as it is and gains a second way in: a signed-in owner, next to the AWS-signed requests that scripts and tests use. The back-office screens are a new client of those same use cases.
+- **The back-office screens** are a new client of the existing Admin use cases, not new use cases. Sign-in is built; the screens are not.
 - **Fulfillment** adds the first behavior that changes an `Order` after it is created, so the allowed status transitions become a domain rule in the ordering context.
 - **Notifications, reporting and vendor forwarding** each subscribe to events with their own queue, the way ordering and basket subscribe to `CheckoutCompleted` today. They need an `OrderPlaced` event published from the table's change stream (sketched in `backend/DATA-MODEL.md`). `CheckoutPaymentFailed` already exists and has no subscriber yet.
 - **Customer accounts** introduce a `Customer` aggregate. Today a customer is only the email on an order.

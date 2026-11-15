@@ -1,6 +1,7 @@
 import { EVENTS } from "@luxebaddie/contracts";
 import { Stack } from "aws-cdk-lib";
 import type { RestApi } from "aws-cdk-lib/aws-apigateway";
+import type { IUserPool } from "aws-cdk-lib/aws-cognito";
 import type { ITable } from "aws-cdk-lib/aws-dynamodb";
 import type { IEventBus } from "aws-cdk-lib/aws-events";
 import { PolicyStatement, Role } from "aws-cdk-lib/aws-iam";
@@ -14,6 +15,7 @@ interface LbEndToEndTestAccessProps {
   api: RestApi;
   eventBus: IEventBus;
   table: ITable;
+  ownerUserPool: IUserPool;
 }
 
 /**
@@ -72,6 +74,25 @@ export class LbEndToEndTestAccess extends Construct {
         actions: ["dynamodb:DeleteItem"],
         resources: [props.table.tableArn],
         conditions: itemsWithKeyPrefix(["ORDER#"]),
+      }),
+    );
+    // The tests invite a throwaway owner, sign in as them and delete them, to
+    // prove the back office lets a signed-in owner in. Cognito cannot limit
+    // these actions to particular users, so on this stage the role could also
+    // reset a real owner's account. It can already call every back-office
+    // function through the /admin routes, so that hands it nothing new.
+    tester.addToPolicy(
+      new PolicyStatement({
+        sid: "SignInAsATemporaryOwner",
+        actions: [
+          "cognito-idp:AdminCreateUser",
+          "cognito-idp:AdminSetUserPassword",
+          "cognito-idp:AdminInitiateAuth",
+          "cognito-idp:AdminRespondToAuthChallenge",
+          "cognito-idp:AdminUserGlobalSignOut",
+          "cognito-idp:AdminDeleteUser",
+        ],
+        resources: [props.ownerUserPool.userPoolArn],
       }),
     );
     // Names and dates of parameters, never their values: enough to tell

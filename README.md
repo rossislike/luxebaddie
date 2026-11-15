@@ -16,7 +16,8 @@ An online store for wigs, weaves and lashes, built to run with as little manual 
    │
    │  the pages call the API from the browser
    ▼
- API Gateway  ── one REST API, /admin/* routes need IAM-signed requests
+ API Gateway  ── one REST API. Back-office routes need an IAM-signed request (/admin/*)
+   │             or the signed-in owner's token (/backoffice/*), checked against Cognito
    │
    ├─ product  Lambda ──┐                            the catalog
    ├─ basket   Lambda ──┼── one DynamoDB table       the bag; starts Stripe Checkout
@@ -228,7 +229,7 @@ When something fails:
 | --- | --- | --- |
 | `luxebaddie-dev-github-preview` | Pull requests from branches of this repository | Read `dev`'s CloudFormation template. Nothing else |
 | `luxebaddie-dev-github-deploy` | Jobs in the `dev` GitHub environment, which only accepts the `main` branch | Deploy, through the roles `cdk bootstrap` created, and read the stack's status |
-| `luxebaddie-dev-github-e2e` | Jobs on the `main` branch | What the end-to-end tests do: call the admin routes, publish a `CheckoutCompleted` event, delete the test orders |
+| `luxebaddie-dev-github-e2e` | Jobs on the `main` branch | What the end-to-end tests do: call the admin routes, publish a `CheckoutCompleted` event, delete the test orders, and create, sign in as and delete a throwaway owner |
 
 Worth knowing:
 
@@ -258,6 +259,28 @@ gh secret set AWS_ACCOUNT_ID
 
 The roles only accept this repository under its current name and owner (`backend/lib/github-actions.ts`). After renaming or transferring it, update the value there and repeat step 2, and deploy the stage once by hand for the test role.
 
-Admin routes (`/admin/*`) accept only requests signed with AWS credentials. They cover the catalog, the fulfillment queue (`/admin/order`), a single order, and one customer's orders by email (`/admin/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. `backend/scripts/lib/aws.ts` has a ready-made signed `fetch`.
+### The back-office routes and who gets in
+
+The back-office functions cover the catalog, the fulfillment queue (`/order`), a single order, and one customer's orders by email (`/customer/{email}/order`); order lists are paged with `?limit=` and `?cursor=`. Each one is served under two prefixes, and API Gateway checks the caller before any Lambda runs:
+
+| Prefix | Who gets in | Used by |
+| --- | --- | --- |
+| `/admin/*` | Requests signed with AWS credentials that are allowed to invoke the route | Scripts, automation and the end-to-end tests. `backend/scripts/lib/aws.ts` has a ready-made signed `fetch` |
+| `/backoffice/*` | Requests carrying the sign-in token of an owner (`Authorization: Bearer <ID token>`) | The back-office site |
+
+A service declares a back-office route once (`backOfficeRoutes` in `backend/src/shared/adapters/api-gateway.ts`) and the API adds it under both prefixes (`addBackOfficeRoute` in `backend/lib/apigateway.ts`). `backend/test/back-office-routes.ts` lists every one of them: a unit test fails if the API and that list disagree, and the end-to-end tests check that each is refused without a sign-in.
+
+### Back-office sign-in
+
+The owner signs in with Amazon Cognito (`backend/lib/owner-sign-in.ts`). Cognito keeps the password and runs the sign-in; nothing in this repository sees either.
+
+- **By invitation only.** There is no way to register. An account exists because someone with access to the AWS account created it.
+- **Two steps, every time.** The password, then a six-digit code from an authenticator app (1Password, Google Authenticator, Authy and the like). Text-message and email codes are switched off.
+- **Sessions end.** A sign-in lasts 12 hours. The API accepts each token for 15 minutes; the back office swaps it for a fresh one in the background until the 12 hours are up.
+- **Sign out everywhere**, for a lost phone or laptop: `aws cognito-idp admin-user-global-sign-out --user-pool-id <OwnerUserPoolId> --username <email>`. No new tokens are issued from that moment, and the ones already issued stop working within 15 minutes.
+- **A lost authenticator** cannot be reset by the owner alone, on purpose: an email inbox must not be enough to get in. Delete the account (`aws cognito-idp admin-delete-user ...`) and invite the owner again. The account holds no data, so nothing is lost.
+- **Forgotten password:** reset by email from the sign-in page. The authenticator code is still required afterwards.
+
+The sign-in pages and the invitation command arrive with the back-office site (ROADMAP.md). Until then the user pool exists, has no members, and the `/backoffice/*` routes refuse everyone.
 
 Operations: the `LuxeBaddie-dev` CloudWatch dashboard shows traffic, errors, queue health, storefront requests and storefront builds. A failed storefront build raises an alarm: the site stays up on the previous version, but is missing whatever changed. To receive alarm emails, set `alarmEmail` for the stage in `backend/lib/stage-config.ts`.

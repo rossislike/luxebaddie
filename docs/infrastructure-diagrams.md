@@ -19,7 +19,7 @@ Source: `backend/lib/luxebaddie-stack.ts` and every construct it creates.
 flowchart TB
     shopper(["Shopper's browser"])
     stripe(["Stripe<br/>hosted Checkout, API, webhooks"])
-    owner(["Store owner<br/>IAM-signed requests"])
+    owner(["Store owner<br/>signed in, or IAM-signed requests"])
 
     subgraph aws["AWS: one stack per stage (LuxeBaddie-dev)"]
         direction TB
@@ -29,7 +29,8 @@ flowchart TB
             siteBucket[("S3 site bucket<br/>private")]
         end
 
-        apigw["API Gateway REST API<br/>rate limited, /admin needs IAM,<br/>webhook limited to Stripe's addresses"]
+        apigw["API Gateway REST API<br/>rate limited, /admin needs IAM,<br/>/backoffice needs the owner's sign-in,<br/>webhook limited to Stripe's addresses"]
+        signin["Cognito user pool<br/>owner sign-in, invitation only,<br/>authenticator app required"]
         lambdas["Lambda microservices<br/>product, basket, payment, ordering,<br/>product change relay, storefront"]
         params[["SSM Parameter Store<br/>encrypted Stripe secrets"]]
         table[("DynamoDB table<br/>products, bags, orders")]
@@ -48,7 +49,9 @@ flowchart TB
     shopper -- "catalog, bag, checkout,<br/>order confirmation" --> apigw
     shopper -- "pays on Stripe's page" --> stripe
     stripe -- "payment webhooks" --> apigw
-    owner -- "admin routes" --> apigw
+    owner -- "back-office routes" --> apigw
+    owner -. "signs in" .-> signin
+    apigw -- "checks the owner's token" --> signin
 
     apigw --> lambdas
     lambdas -- "Stripe API calls" --> stripe
@@ -72,6 +75,7 @@ This is the map. Monitoring watches every piece, so its arrows are left out here
 | --- | --- | --- | --- |
 | Storefront hosting | CloudFront, S3 | Serves the static site over HTTPS. The bucket is private and only this distribution can read it. A CloudFront Function maps `/shop` to `shop.html` | `lib/storefront-hosting.ts`, `lib/storefront-page-router.js` |
 | API | API Gateway (REST) | One base URL in front of every service. 50 requests a second, bursts of 100. Its resource policy decides who may call which route | `lib/apigateway.ts` |
+| Owner sign-in | Cognito | The store owner's account for the back office. Nobody can register, every sign-in needs a code from an authenticator app, a session lasts 12 hours and one token 15 minutes | `lib/owner-sign-in.ts` |
 | Microservices | Lambda | Six functions, one job each. ARM, 512 MB, 25 second timeout, JSON logs, tracing on | `lib/microservices.ts` |
 | Database | DynamoDB | One on-demand table for products, bags and orders, with two overloaded indexes, expiry on bags, and a change stream | `lib/database.ts`, `backend/DATA-MODEL.md` |
 | Secrets | SSM Parameter Store | Holds the Stripe keys and webhook signing secret as encrypted `SecureString` parameters | `lib/stage-config.ts`, `scripts/stripe-setup.ts` |
@@ -90,6 +94,8 @@ Access is enforced by the infrastructure, not by convention.
 | Internet to the site bucket | Never directly. Only through CloudFront | Bucket policy naming this one distribution (origin access control) |
 | Internet to public API routes | Anyone, rate limited: `GET /product`, `/basket/{id}`, `GET /order/session/{sessionId}` | API Gateway resource policy and stage throttling |
 | Internet to `/admin` routes | Only AWS identities in this account with permission to invoke them, with signed requests (SigV4) | IAM authorization on each admin method |
+| Internet to `/backoffice` routes | Only a signed-in owner. The same functions as `/admin`, behind a different check | Cognito authorizer on each back-office method, checking every request's token against the user pool |
+| Anyone to an owner account | Nobody can create one for themselves. Signing in takes the password and a code from the owner's authenticator app | The user pool: sign-up off, second factor required, text-message and email codes off |
 | Internet to `POST /payment/webhook` | Only from Stripe's published addresses, and then only with a valid Stripe signature | Resource policy deny (`lib/stripe-webhook-ips.ts`), then signature check in the payment service |
 | A service to the table | Only items whose key starts with its own prefix. Basket may also read products | IAM conditions on `dynamodb:LeadingKeys` |
 | A service to a secret | Only its own parameters | IAM grants per parameter (checked by `test/unit/stack.test.ts`) |
@@ -378,7 +384,7 @@ flowchart LR
   | --- | --- | --- | --- |
   | `luxebaddie-dev-github-preview` | Pull requests from branches of this repository | Read `dev`'s CloudFormation template. Nothing else | `lib/deploy-access-stack.ts` |
   | `luxebaddie-dev-github-deploy` | Jobs in the `dev` GitHub environment, which only accepts the `main` branch | Use the roles `cdk bootstrap` created to deploy, and read the stack's status and events | `lib/deploy-access-stack.ts` |
-  | `luxebaddie-dev-github-e2e` | Jobs on the `main` branch | Read the stack's outputs, call the `/admin` routes, publish a `CheckoutCompleted` event, delete order items, and see whether the Stripe parameters exist | `lib/end-to-end-test-access.ts` |
+  | `luxebaddie-dev-github-e2e` | Jobs on the `main` branch | Read the stack's outputs, call the `/admin` routes, publish a `CheckoutCompleted` event, delete order items, create, sign in as and delete an owner in `dev`'s user pool, and see whether the Stripe parameters exist | `lib/end-to-end-test-access.ts` |
 
 - **The pipeline cannot change who the pipeline is.** The preview and deploy roles live in their own stack, `LuxeBaddie-dev-DeployAccess`, which is deployed by hand once per stage and which no workflow deploys.
 - **A pull request gets as little as possible**, because it runs code nobody has reviewed yet. Its comparison is template against template, which needs nothing but read access to one stack. Pull requests from forks and from Dependabot cannot sign in at all.
@@ -399,7 +405,6 @@ These are planned in [ROADMAP.md](../ROADMAP.md) and are deliberately absent fro
 | A custom domain with its certificate and DNS | Diagram 1: in front of CloudFront |
 | A web application firewall, or a CloudFront flat-rate plan | Diagram 1: in front of CloudFront |
 | A dedicated KMS key for the `prod` Stripe parameters, and an alarm on unexpected reads of them | Diagram 3 |
-| Owner sign-in for the back office: a Cognito user pool with no self sign-up and a required second factor | Diagram 1: a second way into the `/admin/*` routes, next to IAM-signed requests |
 | A back-office site at its own address | Diagram 1: its own private bucket and CloudFront distribution, separate from the storefront's |
 | Product photo storage, written from the back office and served through the CDN | Diagram 1: a bucket behind CloudFront |
 | A spending alert for `prod` | Diagram 4: next to the alarm topic |
