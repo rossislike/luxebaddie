@@ -3,7 +3,7 @@ import type { StorefrontBuilder } from "../application/ports";
 
 /**
  * Builds and publishes the storefront with the stage's CodeBuild project
- * (backend/lib/storefront-build.ts). The project allows one build at a time;
+ * (backend/lib/site-build.ts). The project allows one build at a time;
  * CodeBuild refuses to start a second with this error.
  */
 const CONCURRENT_BUILD_LIMIT_ERROR = "AccountLimitExceededException";

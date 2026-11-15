@@ -10,12 +10,21 @@ import { LbMonitoring } from "./monitoring";
 import { LbOwnerSignIn } from "./owner-sign-in";
 import { LbQueue } from "./queue";
 import type { StageConfig } from "./stage-config";
-import { LbStorefrontBuild } from "./storefront-build";
-import { LbStorefrontHosting } from "./storefront-hosting";
+import { LbSiteBuild, type SiteSource } from "./site-build";
+import { LbSiteHosting } from "./site-hosting";
 
 interface LuxeBaddieStackProps extends StackProps {
   config: StageConfig;
 }
+
+/** The stage's two static sites. Each is a workspace package, built and hosted the same way. */
+const STOREFRONT: SiteSource = { name: "storefront", title: "storefront", directory: "web", packageName: "@luxebaddie/web" };
+const BACK_OFFICE: SiteSource = {
+  name: "backoffice",
+  title: "back office",
+  directory: "backoffice",
+  packageName: "@luxebaddie/backoffice",
+};
 
 export class LuxeBaddieStack extends Stack {
   constructor(scope: Construct, id: string, props: LuxeBaddieStackProps) {
@@ -26,10 +35,18 @@ export class LuxeBaddieStack extends Stack {
 
     const eventBus = new LbEventBus(this, "EventBus");
 
-    // The storefront's address exists before anything is published to it, so
-    // the services can be told where shoppers come from and return to.
-    const storefrontHosting = new LbStorefrontHosting(this, "StorefrontHosting", { config });
-    const allowedOrigins = [storefrontHosting.url, ...config.localStorefrontOrigins];
+    // The sites' addresses exist before anything is published to them, so the
+    // services can be told where shoppers and the owner come from and return to.
+    const storefrontHosting = new LbSiteHosting(this, "StorefrontHosting", { config, site: STOREFRONT });
+    // The back office has its own address, so nothing that runs on the
+    // storefront (an ad pixel, say) can reach the owner's sign-in.
+    const backOfficeHosting = new LbSiteHosting(this, "BackOfficeHosting", {
+      config,
+      site: BACK_OFFICE,
+      hiddenFromSearchEngines: true,
+    });
+    const backOfficeOrigins = [backOfficeHosting.url, ...config.localBackOfficeOrigins];
+    const allowedOrigins = [storefrontHosting.url, ...config.localStorefrontOrigins, ...backOfficeOrigins];
 
     const microservices = new LbMicroservices(this, "Microservices", {
       config,
@@ -39,7 +56,11 @@ export class LuxeBaddieStack extends Stack {
       allowedOrigins,
     });
 
-    const ownerSignIn = new LbOwnerSignIn(this, "OwnerSignIn", { config });
+    const ownerSignIn = new LbOwnerSignIn(this, "OwnerSignIn", {
+      config,
+      backOfficeUrl: backOfficeHosting.url,
+      backOfficeOrigins,
+    });
 
     const apigateway = new LbApiGateway(this, "ApiGateway", {
       config,
@@ -79,13 +100,39 @@ export class LuxeBaddieStack extends Stack {
       maxReceiveCount: 10,
     });
     eventBus.subscribeToCatalogChanged([storefrontRebuildQueue]);
-    const storefrontBuild = new LbStorefrontBuild(this, "StorefrontBuild", {
+    const storefrontBuild = new LbSiteBuild(this, "StorefrontBuild", {
       config,
+      site: STOREFRONT,
       hosting: storefrontHosting,
-      apiUrl,
+      settings: { NEXT_PUBLIC_API_URL: apiUrl, NEXT_PUBLIC_SITE_URL: storefrontHosting.url },
       publisher: microservices.storefrontMicroservice,
       rebuildQueue: storefrontRebuildQueue,
     });
+
+    // The back office has no catalog pages, so only a deployment makes it out of date.
+    const backOfficeRebuildQueue = new LbQueue(this, "BackOfficeRebuildQueue", {
+      consumer: microservices.backOfficePublisher,
+      collectFor: Duration.seconds(30),
+      maxReceiveCount: 10,
+    });
+    const backOfficeBuild = new LbSiteBuild(this, "BackOfficeBuild", {
+      config,
+      site: BACK_OFFICE,
+      hosting: backOfficeHosting,
+      settings: {
+        NEXT_PUBLIC_API_URL: apiUrl,
+        NEXT_PUBLIC_SIGN_IN_ISSUER: ownerSignIn.issuer,
+        NEXT_PUBLIC_SIGN_IN_CLIENT_ID: ownerSignIn.client.userPoolClientId,
+        NEXT_PUBLIC_SIGN_IN_PAGES_URL: ownerSignIn.pagesUrl,
+      },
+      publisher: microservices.backOfficePublisher,
+      rebuildQueue: backOfficeRebuildQueue,
+    });
+
+    // See startAccessLogsAfter: the API and each site's build are the last
+    // things created that mention the sites' addresses.
+    storefrontHosting.startAccessLogsAfter(api.deploymentStage, storefrontBuild.project);
+    backOfficeHosting.startAccessLogsAfter(api.deploymentStage, backOfficeBuild.project);
 
     const monitoring = new LbMonitoring(this, "Monitoring", {
       config,
@@ -97,10 +144,19 @@ export class LuxeBaddieStack extends Stack {
         ordering: microservices.orderingMicroservice,
         productChangeRelay: microservices.productChangeRelay,
         storefront: microservices.storefrontMicroservice,
+        backOfficePublisher: microservices.backOfficePublisher,
       },
-      queues: { order: orderQueue, paidBasket: paidBasketQueue, storefrontRebuild: storefrontRebuildQueue },
+      queues: {
+        order: orderQueue,
+        paidBasket: paidBasketQueue,
+        storefrontRebuild: storefrontRebuildQueue,
+        backOfficeRebuild: backOfficeRebuildQueue,
+      },
       changeFeedDeadLetterQueues: { catalog: catalogChangeFeed.deadLetterQueue },
-      storefront: { distribution: storefrontHosting.distribution, build: storefrontBuild.project },
+      sites: {
+        Storefront: { title: STOREFRONT.title, distribution: storefrontHosting.distribution, build: storefrontBuild.project },
+        BackOffice: { title: BACK_OFFICE.title, distribution: backOfficeHosting.distribution, build: backOfficeBuild.project },
+      },
     });
 
     if (config.endToEndTestAccess) {
@@ -116,12 +172,17 @@ export class LuxeBaddieStack extends Stack {
     new CfnOutput(this, "StorefrontUrl", { value: storefrontHosting.url });
     new CfnOutput(this, "StorefrontBucketName", { value: storefrontHosting.bucket.bucketName });
     new CfnOutput(this, "StorefrontBuildProject", { value: storefrontBuild.project.projectName });
+    new CfnOutput(this, "BackOfficeUrl", { value: backOfficeHosting.url });
+    new CfnOutput(this, "BackOfficeBucketName", { value: backOfficeHosting.bucket.bucketName });
+    new CfnOutput(this, "BackOfficeBuildProject", { value: backOfficeBuild.project.projectName });
     new CfnOutput(this, "ApiUrl", { value: apiUrl });
     new CfnOutput(this, "StripeWebhookUrl", { value: `${apiUrl}/payment/webhook` });
     new CfnOutput(this, "EventBusName", { value: eventBus.bus.eventBusName });
     new CfnOutput(this, "TableName", { value: database.table.tableName });
     new CfnOutput(this, "OwnerUserPoolId", { value: ownerSignIn.userPool.userPoolId });
     new CfnOutput(this, "OwnerUserPoolClientId", { value: ownerSignIn.client.userPoolClientId });
+    new CfnOutput(this, "OwnerSignInIssuer", { value: ownerSignIn.issuer });
+    new CfnOutput(this, "OwnerSignInPagesUrl", { value: ownerSignIn.pagesUrl });
     new CfnOutput(this, "OrderDeadLetterQueueUrl", { value: orderQueue.deadLetterQueue.queueUrl });
     new CfnOutput(this, "AlarmTopicArn", { value: monitoring.alarmTopic.topicArn });
     new CfnOutput(this, "DashboardName", { value: monitoring.dashboard.dashboardName });

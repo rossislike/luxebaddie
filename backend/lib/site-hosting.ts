@@ -22,33 +22,49 @@ import {
 import { PolicyStatement, ServicePrincipal } from "aws-cdk-lib/aws-iam";
 import { CfnDelivery, CfnDeliveryDestination, CfnDeliverySource } from "aws-cdk-lib/aws-logs";
 import { BlockPublicAccess, Bucket, BucketEncryption, type IBucket, ObjectOwnership } from "aws-cdk-lib/aws-s3";
-import { Construct } from "constructs";
+import { Construct, type IDependable } from "constructs";
 import type { StageConfig } from "./stage-config";
 
-interface LbStorefrontHostingProps {
+/** Which of the stage's static sites this is. */
+export type Site = {
+  /** Used in resource names: lowercase, no spaces. */
+  name: string;
+  /** Used in descriptions, e.g. "storefront" or "back office". */
+  title: string;
+};
+
+interface LbSiteHostingProps {
   config: StageConfig;
+  site: Site;
+  /**
+   * Ask search engines not to list the site. A request, not a lock: what keeps
+   * a private site private is that its data needs a sign-in.
+   */
+  hiddenFromSearchEngines?: boolean;
 }
 
 /**
- * Where the storefront lives: a private S3 bucket holding the site's files,
- * served to shoppers by CloudFront.
+ * Where one of the stage's static sites lives (the storefront, the back
+ * office): a private S3 bucket holding the site's files, served by its own
+ * CloudFront distribution at its own address.
  *
  * - The bucket is not public. Only this distribution can read it, so every
  *   request goes through CloudFront and gets HTTPS and the security headers.
  * - Publishing the site (uploading files, clearing CloudFront's cache) is done
- *   by the build in lib/storefront-build.ts, not here.
+ *   by the build in lib/site-build.ts, not here.
  * - There is no custom domain yet. Until the domain is registered the site is
  *   served from the distribution's own cloudfront.net address.
  */
-export class LbStorefrontHosting extends Construct {
+export class LbSiteHosting extends Construct {
   public readonly bucket: Bucket;
   public readonly distribution: Distribution;
-  /** Public address of the storefront. No trailing slash. */
+  /** Public address of the site. No trailing slash. */
   public readonly url: string;
+  private readonly accessLogSource: CfnDeliverySource;
 
-  constructor(scope: Construct, id: string, props: LbStorefrontHostingProps) {
+  constructor(scope: Construct, id: string, props: LbSiteHostingProps) {
     super(scope, id);
-    const { config } = props;
+    const { config, site } = props;
     const { account } = Stack.of(this);
 
     // S3 writes the site bucket's own access log into the log bucket. By
@@ -76,7 +92,7 @@ export class LbStorefrontHosting extends Construct {
     const originAccess = new S3OriginAccessControl(this, "OriginAccess", { signing: Signing.SIGV4_ALWAYS });
 
     this.distribution = new Distribution(this, "Distribution", {
-      comment: `LuxeBaddie storefront (${config.stage})`,
+      comment: `LuxeBaddie ${site.title} (${config.stage})`,
       defaultRootObject: "index.html",
       defaultBehavior: {
         origin: new PrivateBucketOrigin(this.bucket, originAccess),
@@ -86,7 +102,7 @@ export class LbStorefrontHosting extends Construct {
         // (set at upload by the build), and compresses with gzip and Brotli.
         cachePolicy: CachePolicy.CACHING_OPTIMIZED,
         compress: true,
-        responseHeadersPolicy: this.securityHeaders(config),
+        responseHeadersPolicy: this.securityHeaders(props),
         functionAssociations: [{ function: this.pageRouter(), eventType: FunctionEventType.VIEWER_REQUEST }],
       },
       // S3 answers 403, not 404, for a file that does not exist when the
@@ -116,7 +132,22 @@ export class LbStorefrontHosting extends Construct {
       }),
     );
 
-    this.deliverAccessLogs(config, logBucket);
+    this.accessLogSource = this.deliverAccessLogs(props, logBucket);
+  }
+
+  /**
+   * Holds back the start of access logging until the given resources exist.
+   *
+   * When a distribution has just been created, CloudFormation looks it up once
+   * for every resource that mentions the site's address, all within a few
+   * seconds, and CloudFront throttles the burst. Registering the distribution
+   * for log delivery in those seconds is throttled too ("Rate exceeded"), and
+   * CloudFormation does not retry: the whole deployment rolls back. Pass the
+   * resources that mention the site's address and are created last, so that
+   * logging starts once the burst is over.
+   */
+  startAccessLogsAfter(...resources: IDependable[]) {
+    this.accessLogSource.node.addDependency(...resources);
   }
 
   /**
@@ -124,12 +155,12 @@ export class LbStorefrontHosting extends Construct {
    *
    * The Content-Security-Policy here carries only `frame-ancestors`. The rest
    * of the policy (which scripts may run, where the browser may connect) is
-   * specific to each page, so the storefront build writes it into the page
-   * itself: see web/scripts/content-security-policy.mjs.
+   * specific to each page, so the site's build writes it into the page
+   * itself: see packages/site-build/content-security-policy.mjs.
    */
-  private securityHeaders(config: StageConfig): ResponseHeadersPolicy {
+  private securityHeaders({ config, site, hiddenFromSearchEngines }: LbSiteHostingProps): ResponseHeadersPolicy {
     return new ResponseHeadersPolicy(this, "SecurityHeaders", {
-      comment: `Security headers for the LuxeBaddie storefront (${config.stage})`,
+      comment: `Security headers for the LuxeBaddie ${site.title} (${config.stage})`,
       securityHeadersBehavior: {
         // Browsers that have visited once refuse plain HTTP for the next two years.
         strictTransportSecurity: { accessControlMaxAge: Duration.days(730), includeSubdomains: true, override: true },
@@ -144,10 +175,11 @@ export class LbStorefrontHosting extends Construct {
       },
       customHeadersBehavior: {
         customHeaders: [
-          // The store uses none of these device features, so no script on it can either.
+          // The site uses none of these device features, so no script on it can either.
           { header: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()", override: true },
           // Pages opened from the store get no handle back to its window.
           { header: "Cross-Origin-Opener-Policy", value: "same-origin", override: true },
+          ...(hiddenFromSearchEngines ? [{ header: "X-Robots-Tag", value: "noindex, nofollow", override: true }] : []),
         ],
       },
       // Do not advertise what the site is stored on.
@@ -159,17 +191,18 @@ export class LbStorefrontHosting extends Construct {
     return new EdgeFunction(this, "PageRouter", {
       comment: "Maps clean page addresses to the exported .html files",
       runtime: FunctionRuntime.JS_2_0,
-      code: FunctionCode.fromFile({ filePath: fileURLToPath(new URL("./storefront-page-router.js", import.meta.url)) }),
+      code: FunctionCode.fromFile({ filePath: fileURLToPath(new URL("./site-page-router.js", import.meta.url)) }),
     });
   }
 
   /**
    * Access logs: one record per request, written to the log bucket a few
    * minutes later. CloudFront does not charge for delivering them to S3.
+   * Returns the resource that registers the distribution for log delivery.
    */
-  private deliverAccessLogs(config: StageConfig, logBucket: Bucket) {
+  private deliverAccessLogs({ config, site }: LbSiteHostingProps, logBucket: Bucket): CfnDeliverySource {
     const { account, region } = Stack.of(this);
-    const name = `luxebaddie-${config.stage}-storefront`;
+    const name = `luxebaddie-${config.stage}-${site.name}`;
 
     const source = new CfnDeliverySource(this, "AccessLogSource", {
       name,
@@ -202,13 +235,16 @@ export class LbStorefrontHosting extends Construct {
       }),
     );
     if (grant.policyDependable) delivery.node.addDependency(grant.policyDependable);
+    return source;
   }
 }
 
 /**
  * What is recorded about each request. Deliberately absent: the query string
- * and the referrer, which on the order confirmation page contain the checkout
- * session id (enough to look that order up), and cookies.
+ * and the referrer, and cookies. On the storefront's order confirmation page
+ * the query string holds the checkout session id (enough to look that order
+ * up); on the back office it holds order numbers, customer emails and, for a
+ * moment during sign-in, a one-time sign-in code.
  */
 const ACCESS_LOG_FIELDS = [
   "date",

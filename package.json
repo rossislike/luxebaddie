@@ -5,10 +5,11 @@
   "packageManager": "pnpm@10.10.0",
   "scripts": {
     "dev": "pnpm --filter @luxebaddie/web dev",
+    "dev:backoffice": "pnpm --filter @luxebaddie/backoffice dev",
     "build": "pnpm --filter @luxebaddie/web build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "lint": "pnpm --filter @luxebaddie/web lint",
+    "lint": "pnpm -r lint",
     "deploy:dev": "pnpm --filter @luxebaddie/backend deploy:dev",
     "seed:dev": "pnpm --filter @luxebaddie/backend seed:dev",
     "test:e2e": "pnpm --filter @luxebaddie/backend test:e2e",

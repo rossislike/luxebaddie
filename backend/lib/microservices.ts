@@ -18,7 +18,7 @@ interface LbMicroservicesProps {
   eventBus: IEventBus;
   /** The stage's main storefront: where shoppers return to after checkout. No trailing slash. */
   storefrontUrl: string;
-  /** Browser origins allowed to call the API (CORS): the stage's storefronts. */
+  /** Browser origins allowed to call the API (CORS): the stage's storefronts and back offices. */
   allowedOrigins: string[];
 }
 
@@ -31,8 +31,10 @@ export class LbMicroservices extends Construct {
   public readonly basketMicroservice: NodejsFunction;
   public readonly paymentMicroservice: NodejsFunction;
   public readonly orderingMicroservice: NodejsFunction;
-  /** Starts storefront rebuilds. Given its build project by LbStorefrontBuild. */
+  /** Starts storefront rebuilds. Given its build project by an LbSiteBuild. */
   public readonly storefrontMicroservice: NodejsFunction;
+  /** The same code, deployed a second time to rebuild the back office. Given its build project by an LbSiteBuild. */
+  public readonly backOfficePublisher: NodejsFunction;
 
   constructor(scope: Construct, id: string, props: LbMicroservicesProps) {
     super(scope, id);
@@ -139,5 +141,8 @@ export class LbMicroservices extends Construct {
 
     // Storefront microservice: rebuilds the static storefront when it goes out of date.
     this.storefrontMicroservice = createFunction("storefront", {});
+    // The back office is a static site too, republished the same way. Each
+    // publisher can start its own site's build and nothing else.
+    this.backOfficePublisher = createFunction("backOfficePublisher", {}, { entry: sourcePath("src/storefront/index.ts") });
   }
 }

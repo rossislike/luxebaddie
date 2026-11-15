@@ -48,7 +48,7 @@ export class LuxeBaddieDeployAccessStack extends Stack {
         resources: ["deploy", "file-publishing", "lookup"].map((purpose) => this.cdkBootstrapRole(purpose)),
       }),
     );
-    // For scripts/wait-for-storefront.ts, which runs right after the deployment.
+    // For scripts/wait-for-sites.ts, which runs right after the deployment.
     deployer.addToPolicy(
       new PolicyStatement({
         sid: "FollowTheDeployment",

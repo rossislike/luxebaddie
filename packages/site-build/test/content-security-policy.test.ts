@@ -5,9 +5,10 @@ import {
   inlineScriptHashes,
   securePage,
   withContentSecurityPolicy,
-} from "../scripts/content-security-policy.mjs";
+} from "../content-security-policy.mjs";
 
 const API_ORIGIN = "https://api.example.com";
+const SIGN_IN_ORIGIN = "https://sign-in.example.com";
 const hashOf = (script: string) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`;
 
 const page = (body: string) => `<!DOCTYPE html><html><head><meta charSet="utf-8"/><title>Shop</title></head><body>${body}</body></html>`;
@@ -28,7 +29,7 @@ describe("inlineScriptHashes", () => {
 });
 
 describe("contentSecurityPolicy", () => {
-  const policy = contentSecurityPolicy({ scriptHashes: ["'sha256-abc='"], apiOrigin: API_ORIGIN });
+  const policy = contentSecurityPolicy({ scriptHashes: ["'sha256-abc='"], connectOrigins: [API_ORIGIN, SIGN_IN_ORIGIN] });
   const directive = (name: string) => policy.split("; ").find((d) => d.startsWith(`${name} `) || d === name);
 
   it("runs only our own script files and the listed inline scripts", () => {
@@ -36,8 +37,8 @@ describe("contentSecurityPolicy", () => {
     expect(policy).not.toContain("unsafe-eval");
   });
 
-  it("lets the browser call the backend API and nothing else", () => {
-    expect(directive("connect-src")).toBe(`connect-src 'self' ${API_ORIGIN}`);
+  it("lets the browser call the services it was given and nothing else", () => {
+    expect(directive("connect-src")).toBe(`connect-src 'self' ${API_ORIGIN} ${SIGN_IN_ORIGIN}`);
   });
 
   it("locks down everything it does not mention", () => {
@@ -61,7 +62,7 @@ describe("withContentSecurityPolicy", () => {
 
 describe("securePage", () => {
   it("gives a page a policy that allows its own inline scripts", () => {
-    const html = securePage(page("<script>hydrate()</script>"), API_ORIGIN);
+    const html = securePage(page("<script>hydrate()</script>"), [API_ORIGIN]);
     expect(html).toContain(`script-src 'self' ${hashOf("hydrate()")};`);
   });
 });

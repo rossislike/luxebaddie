@@ -6,7 +6,7 @@ import { describe, expect, it } from "vitest";
  * so the file cannot export anything. The test loads it the way CloudFront
  * does: as a script that defines `handler`.
  */
-const source = readFileSync(new URL("../../../lib/storefront-page-router.js", import.meta.url), "utf8");
+const source = readFileSync(new URL("../../../lib/site-page-router.js", import.meta.url), "utf8");
 const handler = new Function(`${source}; return handler;`)() as (event: { request: { uri: string } }) => { uri: string };
 
 const fileFor = (uri: string) => handler({ request: { uri } }).uri;

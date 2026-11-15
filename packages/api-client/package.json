@@ -1,0 +1,16 @@
+{
+  "name": "@luxebaddie/api-client",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "How a browser calls the LuxeBaddie API: timeouts, retries and errors, shared by both sites.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5"
+  }
+}

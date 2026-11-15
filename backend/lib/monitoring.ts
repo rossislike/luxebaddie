@@ -19,7 +19,8 @@ interface LbMonitoringProps {
   queues: Record<string, { queue: IQueue; deadLetterQueue: IQueue }>;
   /** Change feeds by name: where changes land that could not be announced as events. */
   changeFeedDeadLetterQueues: Record<string, IQueue>;
-  storefront: { distribution: Distribution; build: IProject };
+  /** The stage's static sites by name, e.g. { Storefront: ..., BackOffice: ... }. */
+  sites: Record<string, { title: string; distribution: Distribution; build: IProject }>;
 }
 
 /** CloudWatch alarms (sent to an SNS topic) and one dashboard for the whole backend. */
@@ -62,18 +63,20 @@ export class LbMonitoring extends Construct {
         deadLetterQueue.metricApproximateNumberOfMessagesVisible({ period, statistic: "Maximum" }),
       );
     }
-    const { distribution, build } = props.storefront;
-    alarm(
-      "StorefrontBuildFailedAlarm",
-      "A storefront build failed, so the live site may be missing recent catalog changes. See the build's log.",
-      build.metricFailedBuilds({ period, statistic: "Sum" }),
-    );
-    alarm(
-      "StorefrontServerErrorAlarm",
-      "More than 5% of storefront requests failed with a 5xx error.",
-      distribution.metric5xxErrorRate({ period, statistic: "Average" }),
-      5,
-    );
+    const sites = Object.entries(props.sites);
+    for (const [name, { title, distribution, build }] of sites) {
+      alarm(
+        `${name}BuildFailedAlarm`,
+        `A ${title} build failed, so the live ${title} is missing the latest changes. See the build's log.`,
+        build.metricFailedBuilds({ period, statistic: "Sum" }),
+      );
+      alarm(
+        `${name}ServerErrorAlarm`,
+        `More than 5% of ${title} requests failed with a 5xx error.`,
+        distribution.metric5xxErrorRate({ period, statistic: "Average" }),
+        5,
+      );
+    }
     alarm(
       "ApiServerErrorAlarm",
       "The API returned 5xx errors.",
@@ -123,26 +126,28 @@ export class LbMonitoring extends Construct {
         width: 8,
       }),
     );
-    this.dashboard.addWidgets(
-      new GraphWidget({
-        title: "Storefront requests and errors",
-        left: [distribution.metricRequests({ period, statistic: "Sum" })],
-        right: [
-          distribution.metric4xxErrorRate({ period, statistic: "Average" }),
-          distribution.metric5xxErrorRate({ period, statistic: "Average" }),
-        ],
-        width: 12,
-      }),
-      new GraphWidget({
-        title: "Storefront builds",
-        left: [
-          build.metricSucceededBuilds({ period, statistic: "Sum", label: "succeeded" }),
-          build.metricFailedBuilds({ period, statistic: "Sum", label: "failed" }),
-        ],
-        right: [build.metricDuration({ period, statistic: "Average", label: "duration (s)" })],
-        width: 12,
-      }),
-    );
+    for (const [, { title, distribution, build }] of sites) {
+      this.dashboard.addWidgets(
+        new GraphWidget({
+          title: `${capitalised(title)} requests and errors`,
+          left: [distribution.metricRequests({ period, statistic: "Sum" })],
+          right: [
+            distribution.metric4xxErrorRate({ period, statistic: "Average" }),
+            distribution.metric5xxErrorRate({ period, statistic: "Average" }),
+          ],
+          width: 12,
+        }),
+        new GraphWidget({
+          title: `${capitalised(title)} builds`,
+          left: [
+            build.metricSucceededBuilds({ period, statistic: "Sum", label: "succeeded" }),
+            build.metricFailedBuilds({ period, statistic: "Sum", label: "failed" }),
+          ],
+          right: [build.metricDuration({ period, statistic: "Average", label: "duration (s)" })],
+          width: 12,
+        }),
+      );
+    }
     this.dashboard.addWidgets(
       new GraphWidget({
         title: "Events received per subscriber",
@@ -162,3 +167,5 @@ export class LbMonitoring extends Construct {
     );
   }
 }
+
+const capitalised = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);

@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   // against the backend API.
   // (Cache Components / partial prerendering need a server, so they stay off.)
   output: "export",
-  transpilePackages: ["@luxebaddie/contracts"],
+  transpilePackages: ["@luxebaddie/api-client", "@luxebaddie/contracts"],
   images: { unoptimized: true },
   turbopack: {
     rules: {

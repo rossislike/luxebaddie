@@ -1,11 +1,18 @@
 export type StageConfig = {
   stage: string;
   /**
-   * Storefronts other than the stage's own hosted one (lib/storefront-hosting.ts)
+   * Storefronts other than the stage's own hosted one (lib/luxebaddie-stack.ts)
    * that may call the API and be returned to after checkout. For local
    * development; a production stage leaves this empty. No trailing slashes.
    */
   localStorefrontOrigins: string[];
+  /**
+   * The same for the back office: addresses other than the hosted one
+   * (lib/luxebaddie-stack.ts) that may call the API and that an owner may be
+   * returned to after signing in. For local development; a production stage
+   * leaves this empty. No trailing slashes.
+   */
+  localBackOfficeOrigins: string[];
   /** Keep tables (and their data) if the stack is deleted, and enable point-in-time recovery. */
   retainData: boolean;
   /**
@@ -29,12 +36,13 @@ const stages: Record<string, StageConfig> = {
   dev: {
     stage: "dev",
     localStorefrontOrigins: ["http://localhost:3000"],
+    localBackOfficeOrigins: ["http://localhost:3001"],
     retainData: false,
     stripeAutomaticTax: false,
     endToEndTestAccess: true,
   },
   // prod is added when the domain is registered (see ROADMAP.md). It must set
-  // retainData: true, leave localStorefrontOrigins empty, turn
+  // retainData: true, leave localStorefrontOrigins and localBackOfficeOrigins empty, turn
   // endToEndTestAccess off, and serve the storefront from the real domain.
 };
 

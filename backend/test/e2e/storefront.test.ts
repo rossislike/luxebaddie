@@ -9,12 +9,12 @@
  * The catalog tests publish a real product to the dev storefront and remove
  * it again. Each waits for a storefront build, so they take a few minutes.
  */
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { Product } from "@luxebaddie/contracts";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { BUILD_STAMP_PATH, type BuildStamp } from "../../lib/build-stamp";
 import { createAdminFetch, getStackOutputs, type StackOutputs } from "../../scripts/lib/aws";
-import { eventually } from "./support";
+import { eventually, pagePolicy } from "./support";
 
 const STAGE = "dev";
 const run = randomUUID().slice(0, 8);
@@ -70,17 +70,12 @@ describe("hosted storefront", () => {
   });
 
   it.each(["/", "/shop", "/404.html"])("gives %s a policy that runs only its own inline scripts", async (path) => {
-    const html = await (await page(path)).text();
-    const policy = html.match(/<meta http-equiv="Content-Security-Policy" content="([^"]+)"/)?.[1] ?? "";
-    const scriptSources = policy.match(/script-src ([^;]+)/)?.[1]?.split(" ") ?? [];
-    const inlineScripts = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)].map(([, script]) => script ?? "");
+    const { scriptSources, connectSources, inlineScriptHashes } = pagePolicy(await (await page(path)).text());
 
-    expect(inlineScripts.length).toBeGreaterThan(0);
-    expect(scriptSources.filter((source) => source.startsWith("'sha256-")).sort()).toEqual(
-      [...new Set(inlineScripts.map((script) => `'sha256-${createHash("sha256").update(script).digest("base64")}'`))].sort(),
-    );
+    expect(inlineScriptHashes.length).toBeGreaterThan(0);
+    expect(scriptSources.filter((source) => source.startsWith("'sha256-")).sort()).toEqual([...inlineScriptHashes].sort());
     expect(scriptSources).not.toContain("'unsafe-inline'");
-    expect(policy).toContain(`connect-src 'self' ${new URL(outputs.ApiUrl).origin}`);
+    expect(connectSources).toEqual(["'self'", new URL(outputs.ApiUrl).origin]);
   });
 
   it("lets browsers keep hashed files for good, but check pages every time", async () => {
@@ -103,6 +98,14 @@ describe("hosted storefront", () => {
 
     expect(response.status).toBe(200);
     expect(new Date(startedAt).getTime()).toBeLessThan(Date.now());
+  });
+
+  it("does not point anyone to the back office", async () => {
+    const backOffice = new URL(outputs.BackOfficeUrl).host;
+
+    for (const path of ["/", "/shop", "/bag"]) {
+      expect(await (await page(path)).text()).not.toContain(backOffice);
+    }
   });
 
   it("is allowed to call the API", async () => {
@@ -133,12 +136,21 @@ describe("when the catalog changes", () => {
   const productPage = () => page(`/products/${product.id}`);
   const eventuallyLive = <T>(read: () => Promise<T | null>) =>
     eventually(read, { timeoutMs: PUBLISH_TIMEOUT_MS, intervalMs: 10_000 });
+  /**
+   * A publish uploads the pages first and clears CloudFront's cache second. A
+   * page that did not exist before can be served as soon as it is uploaded,
+   * while a page that did exist (the category listing) is served from the
+   * cache until it is cleared. So the listing follows the product page by up
+   * to a few minutes, and is waited for separately.
+   */
+  const eventuallyListed = (listed: boolean) =>
+    eventuallyLive(async () => ((await (await page("/shop/wigs")).text()).includes(product.name) === listed ? true : null));
 
   afterAll(async () => {
     await adminFetch(api(`/admin/product/${product.id}`), { method: "DELETE" });
   });
 
-  it("puts a new product's page live without a deployment", { timeout: PUBLISH_TIMEOUT_MS + 30_000 }, async () => {
+  it("puts a new product's page live without a deployment", { timeout: 2 * PUBLISH_TIMEOUT_MS + 30_000 }, async () => {
     expect((await productPage()).status).toBe(404);
 
     const saved = await adminFetch(api(`/admin/product/${product.id}`), {
@@ -154,14 +166,14 @@ describe("when the catalog changes", () => {
       return response.ok ? response.text() : null;
     });
     expect(html).toContain(product.name);
-    expect(await (await page("/shop/wigs")).text()).toContain(product.name);
+    await eventuallyListed(true);
   });
 
-  it("takes the page down when the product is removed", { timeout: PUBLISH_TIMEOUT_MS + 30_000 }, async () => {
+  it("takes the page down when the product is removed", { timeout: 2 * PUBLISH_TIMEOUT_MS + 30_000 }, async () => {
     const removed = await adminFetch(api(`/admin/product/${product.id}`), { method: "DELETE" });
     expect(removed.status).toBe(204);
 
     await eventuallyLive(async () => ((await productPage()).status === 404 ? true : null));
-    expect(await (await page("/shop/wigs")).text()).not.toContain(product.name);
+    await eventuallyListed(false);
   });
 });
